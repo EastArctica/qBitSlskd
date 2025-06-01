@@ -490,7 +490,7 @@ func SearchHandler(w http.ResponseWriter, req *http.Request) {
 			}
 
 			// Delete old search results
-			if DELETE_SEARCHES {
+			if config.DELETE_SEARCHES {
 				respReq3, err := http.NewRequest("DELETE", fmt.Sprintf("%s/api/v0/searches/%s", config.SLSKD_ROOT, startSearch.ID), nil)
 				if err != nil {
 					http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -659,8 +659,6 @@ func SearchHandler(w http.ResponseWriter, req *http.Request) {
 		// wait 1 second before next poll
 		time.Sleep(1 * time.Second)
 	}
-
-	// TODO: !!! Delete search
 
 	var searchResults = SearchResults{
 		Version: "2.0",

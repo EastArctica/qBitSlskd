@@ -12,6 +12,7 @@ import (
 var INCOMPLETE_DIR string = "~"
 var DOWNLOADS_DIR string = "~"
 
+var DELETE_SEARCHES bool = true
 var DOWNLOAD_AUDIO_ONLY bool = false
 var PORT string = "3000"
 var SLSKD_ROOT string
@@ -34,6 +35,17 @@ func Init() {
 	port, ok := os.LookupEnv("PORT")
 	if ok {
 		PORT = port
+	}
+
+	deleteSearches, ok := os.LookupEnv("DELETE_SEARCHES")
+	if ok {
+		if deleteSearches == "true" {
+			DELETE_SEARCHES = true
+		} else if deleteSearches == "false" {
+			DELETE_SEARCHES = false
+		} else {
+			log.Fatalf("DELETE_SEARCHES env var is set to '%s', not 'true' or 'false'\n", deleteSearches)
+		}
 	}
 
 	audioOnly, ok := os.LookupEnv("DOWNLOAD_AUDIO_ONLY")

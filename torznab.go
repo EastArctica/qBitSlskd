@@ -18,8 +18,6 @@ import (
 	"github.com/jackpal/bencode-go"
 )
 
-var DELETE_SEARCHES bool = false
-
 func findAudioFileFromResults(files []SearchResultFile) (*SearchResultFile, error) {
 	for _, file := range files {
 		if isAudioFile(file.Filename) {

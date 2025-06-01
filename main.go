@@ -740,5 +740,5 @@ func main() {
 	mux.HandleFunc("/api", TorznabHandler)
 
 	mux.Handle("/", logAll())
-	http.ListenAndServe(":3000", mux)
+	http.ListenAndServe(fmt.Sprintf(":%s", config.PORT), mux)
 }

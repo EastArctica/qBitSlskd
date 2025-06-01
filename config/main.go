@@ -13,6 +13,7 @@ var INCOMPLETE_DIR string = "~"
 var DOWNLOADS_DIR string = "~"
 
 var DOWNLOAD_AUDIO_ONLY bool = false
+var PORT string = "3000"
 var SLSKD_ROOT string
 var QBITSLSKD_ROOT string
 var GEMINI_API_KEY string
@@ -28,6 +29,11 @@ func Init() {
 	downloadsDir, ok := os.LookupEnv("SLSKD_DOWNLOADS_DIR")
 	if ok {
 		DOWNLOADS_DIR = downloadsDir
+	}
+
+	port, ok := os.LookupEnv("PORT")
+	if ok {
+		PORT = port
 	}
 
 	audioOnly, ok := os.LookupEnv("DOWNLOAD_AUDIO_ONLY")

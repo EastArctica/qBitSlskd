@@ -1,0 +1,9 @@
+services:
+  qbitslskd:
+    build: .
+    container_name: qbitslskd
+    env_file:
+      - .env
+    ports:
+    # Will be exposed on port 3074
+      - 3074:3000

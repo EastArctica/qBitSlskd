@@ -1,0 +1,63 @@
+package config
+
+import (
+	"log"
+	"os"
+
+	"github.com/joho/godotenv"
+)
+
+// Defaults from slskd
+// https://github.com/slskd/slskd/blob/master/config/slskd.example.yml
+var INCOMPLETE_DIR string = "~"
+var DOWNLOADS_DIR string = "~"
+
+var DOWNLOAD_AUDIO_ONLY bool = false
+var SLSKD_ROOT string
+var QBITSLSKD_ROOT string
+var GEMINI_API_KEY string
+
+func Init() {
+	godotenv.Load()
+
+	incompleteDir, ok := os.LookupEnv("SLSKD_INCOMPLETE_DIR")
+	if ok {
+		INCOMPLETE_DIR = incompleteDir
+	}
+
+	downloadsDir, ok := os.LookupEnv("SLSKD_DOWNLOADS_DIR")
+	if ok {
+		DOWNLOADS_DIR = downloadsDir
+	}
+
+	audioOnly, ok := os.LookupEnv("DOWNLOAD_AUDIO_ONLY")
+	if ok {
+		if audioOnly == "true" {
+			DOWNLOAD_AUDIO_ONLY = true
+		} else if audioOnly == "false" {
+			DOWNLOAD_AUDIO_ONLY = false
+		} else {
+			log.Fatalf("DOWNLOAD_AUDIO_ONLY env var is set to '%s', not 'true' or 'false'\n", audioOnly)
+		}
+	}
+
+	// We specifically don't verify this exists because of containered environments
+	slskdRoot, ok := os.LookupEnv("SLSKD_ROOT")
+	if !ok {
+		log.Fatal("SLSKD_ROOT must be set to the slskd domain. Ex. https://slskd.example.com or http://slskd.local:5030\n")
+	}
+	SLSKD_ROOT = slskdRoot
+
+	// We specifically don't verify this exists because of containered environments
+	qbitSlskdRoot, ok := os.LookupEnv("QBITSLSKD_ROOT")
+	if !ok {
+		log.Fatal("QBITSLSKD_ROOT must be set to the qbitslskd domain. Ex. https://qbitslskd.example.com or http://qbitslskd.local:3000 (this needs to be accessible by lidarr)\n")
+	}
+	QBITSLSKD_ROOT = qbitSlskdRoot
+
+	geminiApiKey, ok := os.LookupEnv("GEMINI_API_KEY")
+	if !ok {
+		log.Fatal("GEMINI_API_KEY must be set to a valid google api key with access to the Generative Language API. This is used to convert the soulseek paths to album names.\n")
+	}
+	GEMINI_API_KEY = geminiApiKey
+}

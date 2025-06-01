@@ -10,7 +10,7 @@ import (
 // Defaults from slskd
 // https://github.com/slskd/slskd/blob/master/config/slskd.example.yml
 var INCOMPLETE_DIR string = "~"
-var DOWNLOADS_DIR string = "~"
+var COMPLETE_DIR string = "~"
 
 var DELETE_SEARCHES bool = true
 var DOWNLOAD_AUDIO_ONLY bool = false
@@ -27,9 +27,9 @@ func Init() {
 		INCOMPLETE_DIR = incompleteDir
 	}
 
-	downloadsDir, ok := os.LookupEnv("SLSKD_DOWNLOADS_DIR")
+	completeDir, ok := os.LookupEnv("SLSKD_COMPLETE_DIR")
 	if ok {
-		DOWNLOADS_DIR = downloadsDir
+		COMPLETE_DIR = completeDir
 	}
 
 	port, ok := os.LookupEnv("PORT")

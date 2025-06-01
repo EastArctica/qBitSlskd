@@ -409,7 +409,7 @@ func torrentsInfoHandler(w http.ResponseWriter, req *http.Request) {
 			splitPath := strings.Split(dir.Directory, "\\")
 			path := splitPath[len(splitPath)-1]
 			if bytesRemaining == 0 {
-				path = config.DOWNLOADS_DIR + path
+				path = config.COMPLETE_DIR + path
 			} else {
 				path = config.INCOMPLETE_DIR + path
 			}
@@ -478,7 +478,7 @@ func torrentsInfoHandler(w http.ResponseWriter, req *http.Request) {
 				RatioLimit:       -1,
 				Reannounce:       0,
 				RootPath:         path,
-				SavePath:         config.DOWNLOADS_DIR,
+				SavePath:         config.COMPLETE_DIR,
 				SeedingTime:      0,
 				SeedingTimeLimit: -1,
 				SeenComplete:     int(time.Now().Unix()),

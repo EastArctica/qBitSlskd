@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/EastArctica/qbitslskd/config"
+	"github.com/EastArctica/qbitslskd/internal/core"
+	"github.com/EastArctica/qbitslskd/internal/translate"
 	"github.com/EastArctica/qbitslskd/slskd"
 	"github.com/jackpal/bencode-go"
 )
@@ -197,68 +199,6 @@ func createCategoryHandler(w http.ResponseWriter, req *http.Request) {
 	categoriesHandler(w, req)
 }
 
-type TorrentInfo struct {
-	AddedOn    int `json:"added_on"`
-	AmountLeft int `json:"amount_left"`
-	// Auto torrent management
-	AutoTmm bool `json:"auto_tmm"`
-	// -1 sometimes, 0->inf depending on how many seeds have it(?)
-	Availability             int     `json:"availability"`
-	Category                 string  `json:"category"`
-	Comment                  string  `json:"comment"`
-	Completed                int     `json:"completed"`
-	CompletionOn             int     `json:"completion_on"`
-	ContentPath              string  `json:"content_path"`
-	DlLimit                  int     `json:"dl_limit"`
-	Dlspeed                  int     `json:"dlspeed"`
-	DownloadPath             string  `json:"download_path"`
-	Downloaded               int     `json:"downloaded"`
-	DownloadedSession        int     `json:"downloaded_session"`
-	Eta                      int     `json:"eta"`
-	FLPiecePrio              bool    `json:"f_l_piece_prio"`
-	ForceStart               bool    `json:"force_start"`
-	HasMetadata              bool    `json:"has_metadata"`
-	Hash                     string  `json:"hash"`
-	InactiveSeedingTimeLimit int     `json:"inactive_seeding_time_limit"`
-	InfohashV1               string  `json:"infohash_v1"`
-	InfohashV2               string  `json:"infohash_v2"`
-	LastActivity             int     `json:"last_activity"`
-	MagnetURI                string  `json:"magnet_uri"`
-	MaxInactiveSeedingTime   int     `json:"max_inactive_seeding_time"`
-	MaxRatio                 int     `json:"max_ratio"`
-	MaxSeedingTime           int     `json:"max_seeding_time"`
-	Name                     string  `json:"name"`
-	NumComplete              int     `json:"num_complete"`
-	NumIncomplete            int     `json:"num_incomplete"`
-	NumLeechs                int     `json:"num_leechs"`
-	NumSeeds                 int     `json:"num_seeds"`
-	Popularity               float64 `json:"popularity"`
-	Priority                 int     `json:"priority"`
-	Private                  bool    `json:"private"`
-	Progress                 float32 `json:"progress"`
-	Ratio                    float64 `json:"ratio"`
-	RatioLimit               int     `json:"ratio_limit"`
-	Reannounce               int     `json:"reannounce"`
-	RootPath                 string  `json:"root_path"`
-	SavePath                 string  `json:"save_path"`
-	SeedingTime              int     `json:"seeding_time"`
-	SeedingTimeLimit         int     `json:"seeding_time_limit"`
-	SeenComplete             int     `json:"seen_complete"`
-	SeqDl                    bool    `json:"seq_dl"`
-	Size                     int     `json:"size"`
-	State                    string  `json:"state"`
-	SuperSeeding             bool    `json:"super_seeding"`
-	Tags                     string  `json:"tags"`
-	TimeActive               int     `json:"time_active"`
-	TotalSize                int     `json:"total_size"`
-	Tracker                  string  `json:"tracker"`
-	TrackersCount            int     `json:"trackers_count"`
-	UpLimit                  int     `json:"up_limit"`
-	Uploaded                 int     `json:"uploaded"`
-	UploadedSession          int     `json:"uploaded_session"`
-	Upspeed                  int     `json:"upspeed"`
-}
-
 var albumNameMutex sync.RWMutex
 var albumNameCache = make(map[string]string)
 
@@ -323,21 +263,17 @@ func torrentsInfoHandler(w http.ResponseWriter, req *http.Request) {
 
 	// Convert downloads to torrents info
 	// TODO: This doesn't need to be a slice, we can determine the size by summing the dirs
-	var torrents []TorrentInfo = []TorrentInfo{}
+	var torrents = []translate.QBTorrentInfo{}
 
 	for _, user := range users {
 		for _, dir := range user.Directories {
-			var firstAddedAt int
+			var firstAddedAt int64
 			var totalBytes int
 			var bytesRemaining int
 			// epoch seconds, -1 if incomplete
-			var completionOn int = -1
-			var latestFileCompletion int
-			// bytes per sec
-			var downloadSpeed int = 0
-			// seconds
-			var eta int
-			var state string = "downloading"
+			var completionTime *time.Time = nil
+			var downloadSpeed int64 = 0
+			var status core.Status = core.StatusDownloading
 
 			audioPath := dir.Directory
 			audioFile, err := findAudioFile(dir.Files)
@@ -351,20 +287,19 @@ func torrentsInfoHandler(w http.ResponseWriter, req *http.Request) {
 				continue
 			}
 
-			var averageSpeeds []float32
 			for _, file := range dir.Files {
 				totalBytes += file.Size
 				bytesRemaining += file.BytesRemaining
 
 				// This should get the latest downloading file's speed
 				if file.AverageSpeed != 0 {
-					downloadSpeed = int(file.AverageSpeed)
+					downloadSpeed = int64(file.AverageSpeed)
 				}
 
 				// Find earliest enqueued file
 				enqueuedTime, err := time.Parse(time.RFC3339, file.EnqueuedAt)
 				if err == nil {
-					enq := int(enqueuedTime.Unix())
+					enq := enqueuedTime.Unix()
 					if firstAddedAt == 0 || enq < firstAddedAt {
 						firstAddedAt = enq
 					}
@@ -372,35 +307,20 @@ func torrentsInfoHandler(w http.ResponseWriter, req *http.Request) {
 
 				// Track the latest completion time for when all files are done
 				if !file.EndedAt.IsZero() {
-					endUnix := int(file.EndedAt.Unix())
-					if endUnix > latestFileCompletion {
-						latestFileCompletion = endUnix
+					if completionTime == nil || file.EndedAt.After(*completionTime) {
+						completionTime = &file.EndedAt
 					}
 				}
-
-				if file.AverageSpeed != 0 {
-					averageSpeeds = append(averageSpeeds, file.AverageSpeed)
-				}
-			}
-
-			averageSpeed := Average(averageSpeeds)
-			if averageSpeed != 0 {
-				eta = bytesRemaining / int(averageSpeed)
-			}
-
-			if bytesRemaining == 0 {
-				completionOn = latestFileCompletion
 			}
 
 			// TODO: Implement more types of state
 			// https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-5.0)#get-torrent-list
 			if bytesRemaining == 0 {
-				// This is the best choice as it allows for the original file to be deleted
-				state = "uploading"
+				status = core.StatusCompleted
 			}
 
 			if Some(dir.Files, func(file slskd.SlskdDownloadsFiles) bool { return includes(file.State, "Errored") }) {
-				state = "error"
+				status = core.StatusError
 			}
 
 			// Get the full content path
@@ -428,76 +348,21 @@ func torrentsInfoHandler(w http.ResponseWriter, req *http.Request) {
 			albumName := albumNameCache[audioPath]
 			albumNameMutex.RUnlock()
 
-			progress := float32(totalBytes-bytesRemaining) / float32(totalBytes)
-
-			torrent := TorrentInfo{
-				AddedOn:      firstAddedAt,
-				AmountLeft:   bytesRemaining,
-				AutoTmm:      false,
-				Availability: 1,
-				Category:     allCategories,
-				Comment:      "",
-				Completed:    totalBytes - bytesRemaining,
-				CompletionOn: completionOn,
-				ContentPath:  path,
-				// TODO: Get download speed from config. For now we set it to unlimited
-				// Download speed unlimited
-				DlLimit:           -1,
-				Dlspeed:           downloadSpeed,
-				DownloadPath:      config.INCOMPLETE_DIR,
-				Downloaded:        totalBytes - bytesRemaining,
-				DownloadedSession: totalBytes - bytesRemaining,
-				Eta:               eta,
-				FLPiecePrio:       false,
-				ForceStart:        false,
-				HasMetadata:       false,
-				Hash:              hash,
-				// TODO: I have no idea what this is
-				InactiveSeedingTimeLimit: -1,
-				InfohashV1:               hash,
-				InfohashV2:               "",
-				// slskd does not provide this to us so we have to pick something
-				LastActivity:           0,
-				MagnetURI:              "",
-				MaxInactiveSeedingTime: -1,
-				MaxRatio:               -1,
-				MaxSeedingTime:         -1,
-				Name:                   albumName,
-				// None of these should matter
-				NumComplete:   1,
-				NumIncomplete: 1,
-				NumLeechs:     1,
-				NumSeeds:      1,
-				// TODO: I have no idea what this is
-				Popularity: 1,
-				// I'm not sure what the values of this could be, other than -1 if queuing is disabled or the torrent is seeding
-				Priority:         1,
-				Private:          false,
-				Progress:         progress,
-				Ratio:            0,
-				RatioLimit:       -1,
-				Reannounce:       0,
-				RootPath:         path,
-				SavePath:         config.COMPLETE_DIR,
-				SeedingTime:      0,
-				SeedingTimeLimit: -1,
-				SeenComplete:     int(time.Now().Unix()),
-				SeqDl:            false,
-				Size:             totalBytes,
-				State:            state,
-				SuperSeeding:     false,
-				Tags:             "",
-				TimeActive:       int(time.Now().Unix()) - firstAddedAt,
-				// This should technically include all other files in the directory (including unselected) but I don't care
-				TotalSize: totalBytes,
-				// This can't be empty as that's considered an error
-				Tracker:         "_",
-				TrackersCount:   1,
-				UpLimit:         -1,
-				Uploaded:        0,
-				UploadedSession: 0,
-				Upspeed:         0,
+			t := core.Torrent{
+				Hash: hash,
+				Name: albumName,
+				Size: int64(totalBytes),
+				CompletedBytes: int64(totalBytes - bytesRemaining),
+				DownloadSpeed: int64(downloadSpeed),
+				Status: status,
+				AddedAt: time.Unix(firstAddedAt, 0),
+				CompletedAt: completionTime,
+				Category: "",
+				SavePath: path,
+				SourceUser: user.Username,
 			}
+
+			torrent := translate.QBTorrentInfoFromCore(t)
 
 			torrents = append(torrents, torrent)
 		}

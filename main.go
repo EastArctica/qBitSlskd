@@ -740,5 +740,7 @@ func main() {
 	mux.HandleFunc("/api", TorznabHandler)
 
 	mux.Handle("/", logAll())
+
+	fmt.Printf("qBitSlskd started on port %s!\n", config.PORT)
 	http.ListenAndServe(fmt.Sprintf(":%s", config.PORT), mux)
 }

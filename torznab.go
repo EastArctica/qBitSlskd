@@ -571,7 +571,13 @@ func SearchHandler(w http.ResponseWriter, req *http.Request) {
 				if err == nil {
 					audioPath = audioFile.Filename
 				}
-				pathsToConvert = append(pathsToConvert, audioPath)
+
+				albumNameMutex.RLock()
+				_, ok := albumNameCache[audioPath]
+				albumNameMutex.RUnlock()
+				if !ok {
+					pathsToConvert = append(pathsToConvert, audioPath)
+				}
 			}
 
 			var waitGroup sync.WaitGroup
@@ -584,7 +590,6 @@ func SearchHandler(w http.ResponseWriter, req *http.Request) {
 					// Aquire semaphore to only send 20 requests at a time
 					semaphore <- struct{}{}
 					defer func() { <-semaphore }() // Release at end
-
 					name, err := GetAlbumName(path)
 					if err != nil {
 						fmt.Printf("Failed to get song title %s\n", err.Error())
@@ -650,6 +655,23 @@ func SearchHandler(w http.ResponseWriter, req *http.Request) {
 						URL:    fmt.Sprintf("%s/api?t=custom_download&id=%s&apikey=%s", config.QBITSLSKD_ROOT, resultHash, apiKey),
 						Length: fmt.Sprint(fileSize),
 						Type:   "application/x-bittorrent",
+					},
+					Attr: []ChannelItemAttr{
+						{
+							Text:  "seeders",
+							Name: "seeders",
+							Value: "1",
+						},
+						{
+							Text:  "leechers",
+							Name: "leechers",
+							Value: strconv.Itoa(result.QueueLength),
+						},
+						{
+							Text:  "peers",
+							Name: "peers",
+							Value: strconv.Itoa(result.QueueLength + 1),
+						},
 					},
 				})
 			}

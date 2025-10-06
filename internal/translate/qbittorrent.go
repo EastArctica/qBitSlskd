@@ -64,8 +64,7 @@ func QBTorrentInfoFromCore(t core.Torrent) QBTorrentInfo {
 	// Basic eta calculation of time started vs download speed
 	remainingBytes := t.Size - t.CompletedBytes
 	if t.DownloadSpeed != 0 {
-		timeRemaining := remainingBytes / t.DownloadSpeed
-		eta = int(time.Second * time.Duration(timeRemaining))
+		eta = int(remainingBytes / t.DownloadSpeed)
 	}
 
 	return QBTorrentInfo{

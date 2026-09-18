@@ -21,8 +21,8 @@ func SearchHandler(w http.ResponseWriter, req *http.Request, cache *models.Cache
 		return
 	}
 
-	var startSearch models.SearchStateResponse
-	err := json.Unmarshal(startSearchResponseData, &startSearch)
+	var startSearchResponse models.SearchStateResponse
+	err := json.Unmarshal(startSearchResponseData, &startSearchResponse)
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
@@ -35,7 +35,11 @@ func SearchHandler(w http.ResponseWriter, req *http.Request, cache *models.Cache
 		return
 	}
 
-	http_err = blockUntilSearchComplete(startSearch.ID, apiKey)
+	http_err = blockUntilSearchComplete(startSearchResponse.ID, apiKey)
+	if http_err != nil {
+		http.Error(w, http_err.Err, http_err.Code)
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Search complete"))
@@ -162,3 +166,5 @@ func blockUntilSearchComplete(id string, apiKey string) *models.HttpError {
 		time.Sleep(1 * time.Second)
 	}
 }
+
+// func getSearchResults

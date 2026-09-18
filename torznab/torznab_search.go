@@ -21,7 +21,7 @@ func SearchHandler(w http.ResponseWriter, req *http.Request, cache *models.Cache
 		return
 	}
 
-	var startSearchResponse models.SearchStateResponse
+	var startSearchResponse models.SearchResponse
 	err := json.Unmarshal(startSearchResponseData, &startSearchResponse)
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -35,10 +35,26 @@ func SearchHandler(w http.ResponseWriter, req *http.Request, cache *models.Cache
 		return
 	}
 
-	http_err = blockUntilSearchComplete(startSearchResponse.ID, apiKey)
+	var search_response *models.SearchResponse = nil
+
+	search_response, http_err = blockUntilSearchComplete(startSearchResponse.ID, apiKey)
 	if http_err != nil {
 		http.Error(w, http_err.Err, http_err.Code)
 		return
+	}
+
+	fmt.Println(search_response.ID)
+
+	var search_results []models.SearchResult = make([]models.SearchResult, 0)
+
+	search_results, http_err = getSearchResults(search_response.ID, apiKey)
+	if http_err != nil {
+		http.Error(w, http_err.Err, http_err.Code)
+		return
+	}
+
+	for i := 0; i < len(search_results); i++ {
+		// fmt.Println(search_results[i])
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -124,13 +140,13 @@ func initSearch(req *http.Request) ([]byte, *models.HttpError) {
 	return startSearchResData, nil
 }
 
-func blockUntilSearchComplete(id string, apiKey string) *models.HttpError {
+func blockUntilSearchComplete(id string, apiKey string) (*models.SearchResponse, *models.HttpError) {
 	client := &http.Client{}
 
 	statusURL := fmt.Sprintf("%s/api/v0/searches/%s", config.SLSKD_ROOT, id)
 	statusReq, err := http.NewRequest("GET", statusURL, nil)
 	if err != nil {
-		return models.HttpError_From("Internal server error", http.StatusInternalServerError)
+		return nil, models.HttpError_From("Internal server error", http.StatusInternalServerError)
 	}
 
 	// include API key header
@@ -140,31 +156,58 @@ func blockUntilSearchComplete(id string, apiKey string) *models.HttpError {
 
 		statusRes, err := client.Do(statusReq)
 		if err != nil {
-			return models.HttpError_From("Internal server error", http.StatusInternalServerError)
+			return nil, models.HttpError_From("Internal server error", http.StatusInternalServerError)
 		}
 
 		if statusRes.StatusCode == 403 {
-			return models.HttpError_From("Forbidden", http.StatusForbidden)
+			return nil, models.HttpError_From("Forbidden", http.StatusForbidden)
 		}
 
 		statusBody, err := io.ReadAll(statusRes.Body)
 		statusRes.Body.Close()
 		if err != nil {
-			return models.HttpError_From("Internal server error", http.StatusInternalServerError)
+			return nil, models.HttpError_From("Internal server error", http.StatusInternalServerError)
 		}
 
 		// parse into SearchStateResponse
-		var state models.SearchStateResponse
+		var state models.SearchResponse
 		if err := json.Unmarshal(statusBody, &state); err != nil {
-			return models.HttpError_From("Internal server error", http.StatusInternalServerError)
+			return nil, models.HttpError_From("Internal server error", http.StatusInternalServerError)
 		}
 
 		if state.IsComplete {
-			return nil
+			return &state, nil
 		}
 
 		time.Sleep(1 * time.Second)
 	}
 }
 
-// func getSearchResults
+func getSearchResults(search_id string, api_key string) ([]models.SearchResult, *models.HttpError) {
+	client := &http.Client{}
+
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v0/searches/%s/responses", config.SLSKD_ROOT, search_id), nil)
+	if err != nil {
+		return nil, models.HttpError_From("Internal server error", http.StatusInternalServerError)
+	}
+	req.Header.Add("X-API-Key", api_key)
+
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, models.HttpError_From("Internal server error", http.StatusInternalServerError)
+	}
+	defer res.Body.Close()
+
+	respBody2, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, models.HttpError_From("Internal server error", http.StatusInternalServerError)
+	}
+
+	// parse into a slice of SearchResult
+	var apiResults []models.SearchResult
+	if err := json.Unmarshal(respBody2, &apiResults); err != nil {
+		return nil, models.HttpError_From("Internal server error", http.StatusInternalServerError)
+	}
+
+	return apiResults, nil
+}

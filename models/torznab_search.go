@@ -15,7 +15,7 @@ type SearchRequest struct {
 }
 
 // The response from slskd after initiating the search
-type SearchStateResponse struct {
+type SearchResponse struct {
 	FileCount       int        `json:"fileCount"`
 	ID              string     `json:"id"`
 	IsComplete      bool       `json:"isComplete"`
@@ -27,4 +27,24 @@ type SearchStateResponse struct {
 	State           string     `json:"state"`
 	Token           int        `json:"token"`
 	EndedAt         *time.Time `json:"endedAt"`
+}
+
+type SearchResultFile struct {
+	Code      int    `json:"code"`
+	Extension string `json:"extension"`
+	Filename  string `json:"filename"`
+	Size      int64  `json:"size"`
+	IsLocked  bool   `json:"isLocked"`
+}
+
+type SearchResult struct {
+	FileCount         int                `json:"fileCount"`
+	Files             []SearchResultFile `json:"files"`
+	HasFreeUploadSlot bool               `json:"hasFreeUploadSlot"`
+	LockedFileCount   int                `json:"lockedFileCount"`
+	LockedFiles       []SearchResultFile `json:"lockedFiles"`
+	QueueLength       int                `json:"queueLength"`
+	Token             int                `json:"token"`
+	UploadSpeed       int                `json:"uploadSpeed"`
+	Username          string             `json:"username"`
 }

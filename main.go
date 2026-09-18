@@ -7,6 +7,7 @@ import (
 
 	"github.com/EastArctica/qbitslskd/config"
 	"github.com/EastArctica/qbitslskd/models"
+	"github.com/EastArctica/qbitslskd/torznab"
 )
 
 type Cache struct {
@@ -44,7 +45,19 @@ func HanndleQbtApiRequests(w http.ResponseWriter, req *http.Request) {
 func HanndleTorznabApiRequests(w http.ResponseWriter, req *http.Request) {
 	// cache_ptr := &cache
 
-	//
+	functionType := req.URL.Query().Get("t")
+	switch functionType {
+	case "caps":
+		torznab.CapabilitiesHandler(w, req)
+		return
+		// case "search":
+		// 	torznab.SearchHandler(w, req)
+		// 	return
+		// case "custom_download":
+		// 	// Note: This is NOT a real torznab function and is custom to qBitSlskd
+		// 	CustomDownloadHandler(w, req)
+		// 	return
+	}
 
 }
 

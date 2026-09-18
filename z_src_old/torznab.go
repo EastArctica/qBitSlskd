@@ -659,17 +659,17 @@ func SearchHandler(w http.ResponseWriter, req *http.Request) {
 					Attr: []ChannelItemAttr{
 						{
 							Text:  "seeders",
-							Name: "seeders",
+							Name:  "seeders",
 							Value: "1",
 						},
 						{
 							Text:  "leechers",
-							Name: "leechers",
+							Name:  "leechers",
 							Value: strconv.Itoa(result.QueueLength),
 						},
 						{
 							Text:  "peers",
-							Name: "peers",
+							Name:  "peers",
 							Value: strconv.Itoa(result.QueueLength + 1),
 						},
 					},

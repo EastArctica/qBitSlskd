@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"encoding/xml"
+	"time"
+)
 
 type SearchRequest struct {
 	Id                       string `json:"id"`
@@ -47,4 +50,80 @@ type SearchResult struct {
 	Token             int                `json:"token"`
 	UploadSpeed       int                `json:"uploadSpeed"`
 	Username          string             `json:"username"`
+}
+
+type TorznabSearchResults struct {
+	XMLName xml.Name             `xml:"rss"`
+	Text    string               `xml:",chardata"`
+	Version string               `xml:"version,attr"`
+	Atom    string               `xml:"atom,attr"`
+	Torznab string               `xml:"torznab,attr"`
+	Channel TorznabSearchChannel `xml:"channel"`
+}
+
+type TorznabSearchChannel struct {
+	Text        string                 `xml:",chardata"`
+	Link        TorznabChannelLink     `xml:"link"`
+	Title       string                 `xml:"title"`
+	Description string                 `xml:"description"`
+	Language    string                 `xml:"language"`
+	WebMaster   string                 `xml:"webMaster"`
+	Category    string                 `xml:"category"`
+	Image       TorznabChannelImage    `xml:"image"`
+	Ttl         string                 `xml:"ttl"`
+	Response    TorznabChannelResponse `xml:"response"`
+	Item        []TorznabChannelItem   `xml:"item"`
+}
+
+type TorznabChannelLink struct {
+	Text string `xml:",chardata"`
+	Href string `xml:"href,attr"`
+	Rel  string `xml:"rel,attr"`
+	Type string `xml:"type,attr"`
+}
+
+type TorznabChannelImage struct {
+	Text        string `xml:",chardata"`
+	URL         string `xml:"url"`
+	Title       string `xml:"title"`
+	Link        string `xml:"link"`
+	Description string `xml:"description"`
+}
+
+type TorznabChannelResponse struct {
+	Text    string `xml:",chardata"`
+	Newznab string `xml:"newznab,attr"`
+	Offset  string `xml:"offset,attr"`
+	Total   string `xml:"total,attr"`
+}
+
+type TorznabChannelItem struct {
+	Text        string                      `xml:",chardata"`
+	Title       string                      `xml:"title"`
+	Guid        TorznabGuid                 `xml:"guid"`
+	Link        string                      `xml:"link"`
+	Comments    string                      `xml:"comments"`
+	PubDate     string                      `xml:"pubDate"`
+	Category    string                      `xml:"category"`
+	Description string                      `xml:"description"`
+	Enclosure   TorznabChannelItemEnclosure `xml:"enclosure"`
+	Attr        []TorznabChannelItemAttr    `xml:"attr"`
+}
+
+type TorznabGuid struct {
+	Text        string `xml:",chardata"`
+	IsPermaLink string `xml:"isPermaLink,attr"`
+}
+
+type TorznabChannelItemEnclosure struct {
+	Text   string `xml:",chardata"`
+	URL    string `xml:"url,attr"`
+	Length string `xml:"length,attr"`
+	Type   string `xml:"type,attr"`
+}
+
+type TorznabChannelItemAttr struct {
+	Text  string `xml:",chardata"`
+	Name  string `xml:"name,attr"`
+	Value string `xml:"value,attr"`
 }

@@ -2,11 +2,15 @@ package torznab
 
 import (
 	"bytes"
+	"crypto/sha1"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/EastArctica/qbitslskd/config"
@@ -53,12 +57,53 @@ func SearchHandler(w http.ResponseWriter, req *http.Request, cache *models.Cache
 		return
 	}
 
-	for i := 0; i < len(search_results); i++ {
-		// fmt.Println(search_results[i])
+	items := buildItems(search_results, cache, apiKey)
+
+	var searchResults = models.TorznabSearchResults{
+		Version: "2.0",
+		Atom:    "http://www.w3.org/2005/Atom",
+		Torznab: "http://torznab.com/schemas/2015/feed",
+		Channel: models.TorznabSearchChannel{
+			Link: models.TorznabChannelLink{
+				Href: req.URL.String(),
+				Rel:  "self",
+				Type: "application/rss+xml",
+			},
+			Title:       "qBitSlskd - Search Results",
+			Description: "Search results for '" + req.URL.Query().Get("q") + "' from qBitSlskd",
+			// I'm not sure if something should be done related to this...
+			Language:  "en-us",
+			WebMaster: "example@example.com",
+			Category:  "search",
+			Image: models.TorznabChannelImage{
+				URL:         "https://avatars.githubusercontent.com/u/76762370",
+				Title:       "qBitSlskd",
+				Link:        "https://github.com/EastArctica/qBitSlskd",
+				Description: "slskd Logo",
+			},
+			// Cache time (minutes)
+			Ttl: "30",
+			Response: models.TorznabChannelResponse{
+				Newznab: "http://www.newznab.com/DTD/2010/feeds/attributes/",
+				// TODO: Offset (Is this possible with slskd?)
+				Offset: "0",
+				Total:  strconv.Itoa(len(items)),
+			},
+			Item: items,
+		},
 	}
 
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Search complete"))
+	data, err := xml.Marshal(searchResults)
+	if err != nil {
+		fmt.Printf("Failed to marshal search results %s\n", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// fmt.Printf("Finished search for %s\n", )
+
+	w.Header().Set("response-type", "application/xml")
+	fmt.Fprint(w, string(data))
 }
 
 func initSearch(req *http.Request) ([]byte, *models.HttpError) {
@@ -210,4 +255,160 @@ func getSearchResults(search_id string, api_key string) ([]models.SearchResult, 
 	}
 
 	return apiResults, nil
+}
+
+// Newznab category for Audio. This also has to appear in the caps <categories>
+// block before Lidarr will accept releases carrying it.
+const CATEGORY_AUDIO = "3000"
+
+// slskd answers per user: one SearchResult is everything a single user matched,
+// across however many directories. What anyone actually downloads is an album,
+// which on Soulseek is a directory, so each user's file list gets split into the
+// directories those files live in. One user offering three albums becomes three
+// releases.
+type releaseCandidate struct {
+	username    string
+	directory   string
+	files       []models.SearchResultFile
+	totalSize   int64
+	queueLength int
+	freeSlot    bool
+}
+
+func groupByDirectory(results []models.SearchResult) []releaseCandidate {
+	candidates := make([]releaseCandidate, 0)
+
+	for _, result := range results {
+		// Insertion order is tracked separately so that two identical searches
+		// produce identically ordered output; map iteration order is randomised.
+		order := make([]string, 0)
+		directories := make(map[string]*releaseCandidate)
+
+		for _, file := range result.Files {
+			if file.IsLocked {
+				continue
+			}
+
+			directory := slskdDirectory(file.Filename)
+
+			candidate, ok := directories[directory]
+			if !ok {
+				candidate = &releaseCandidate{
+					username:    result.Username,
+					directory:   directory,
+					files:       make([]models.SearchResultFile, 0),
+					queueLength: result.QueueLength,
+					freeSlot:    result.HasFreeUploadSlot,
+				}
+
+				directories[directory] = candidate
+				order = append(order, directory)
+			}
+
+			candidate.files = append(candidate.files, file)
+			candidate.totalSize += file.Size
+		}
+
+		for _, directory := range order {
+			candidates = append(candidates, *directories[directory])
+		}
+	}
+
+	return candidates
+}
+
+func buildItems(results []models.SearchResult, cache *models.Cache, apiKey string) []models.TorznabChannelItem {
+	candidates := groupByDirectory(results)
+	items := make([]models.TorznabChannelItem, 0, len(candidates))
+	pubDate := time.Now().Format(time.RFC1123Z)
+
+	for _, candidate := range candidates {
+		// TODO: Run this through the album namer. Lidarr identifies a release by
+		// parsing its title, so a raw Soulseek directory name matches nothing and
+		// the release gets discarded.
+		name := slskdBasename(candidate.directory)
+
+		// The hash is the release's identity for the rest of the pipeline: it is
+		// the guid, the search cache key, the id in the download URL, and later
+		// the torrent hash reported back by /api/v2/torrents/info. They all have
+		// to agree or the grab cannot be matched to a Soulseek user and path.
+		hash := releaseHash(candidate.username, candidate.directory)
+
+		cache.CacheMutex.Lock()
+		cache.SearchCache[hash] = models.SearchCacheEntry{
+			SearchedAt: time.Now(),
+			Files:      candidate.files,
+			Username:   candidate.username,
+			Name:       name,
+		}
+		cache.CacheMutex.Unlock()
+
+		downloadURL := fmt.Sprintf("%s/api?t=custom_download&id=%s&apikey=%s",
+			config.QBITSLSKD_ROOT, hash, url.QueryEscape(apiKey))
+
+		// Nothing here really seeds, but a release reporting zero seeders is
+		// treated as unavailable and dropped, so every release gets at least one.
+		// Peers with a free upload slot get two so they sort above queued ones.
+		seeders := 1
+		if candidate.freeSlot {
+			seeders = 2
+		}
+
+		size := strconv.FormatInt(candidate.totalSize, 10)
+
+		items = append(items, models.TorznabChannelItem{
+			Title:       name,
+			Guid:        models.TorznabGuid{Text: hash, IsPermaLink: "false"},
+			Link:        downloadURL,
+			PubDate:     pubDate,
+			Category:    CATEGORY_AUDIO,
+			Description: name,
+			Enclosure: models.TorznabChannelItemEnclosure{
+				URL:    downloadURL,
+				Length: size,
+				Type:   "application/x-bittorrent",
+			},
+			Attr: []models.TorznabChannelItemAttr{
+				{Name: "category", Value: CATEGORY_AUDIO},
+				{Name: "size", Value: size},
+				{Name: "files", Value: strconv.Itoa(len(candidate.files))},
+				{Name: "seeders", Value: strconv.Itoa(seeders)},
+				{Name: "peers", Value: strconv.Itoa(candidate.queueLength + seeders)},
+				// A Soulseek transfer can never seed, so stop Lidarr holding
+				// completed items against ratio goals that will never be met.
+				{Name: "downloadvolumefactor", Value: "0"},
+				{Name: "uploadvolumefactor", Value: "0"},
+				{Name: "minimumseedtime", Value: "1"},
+			},
+		})
+	}
+
+	return items
+}
+
+func releaseHash(username string, directory string) string {
+	hasher := sha1.New()
+	// hash.Hash promises that Write never returns an error.
+	hasher.Write([]byte(username + directory))
+
+	return fmt.Sprintf("%x", hasher.Sum(nil))
+}
+
+// slskd always separates shared paths with backslashes, whatever the host OS.
+func slskdDirectory(filename string) string {
+	index := strings.LastIndex(filename, "\\")
+	if index < 0 {
+		return ""
+	}
+
+	return filename[:index]
+}
+
+func slskdBasename(path string) string {
+	index := strings.LastIndex(path, "\\")
+	if index < 0 {
+		return path
+	}
+
+	return path[index+1:]
 }

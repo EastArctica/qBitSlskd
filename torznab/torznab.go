@@ -51,6 +51,16 @@ func CapabilitiesHandler(w http.ResponseWriter, req *http.Request) {
 				SupportedParams: "",
 			},
 		},
+		// Releases are published under CATEGORY_AUDIO, and a category that is
+		// not advertised here is one Lidarr will refuse to accept releases in.
+		Categories: models.CapabilitiesCategories{
+			Category: []models.CategoryWithSubcat{
+				{
+					ID:   CATEGORY_AUDIO,
+					Name: "Audio",
+				},
+			},
+		},
 	}
 
 	data, err := xml.Marshal(capabilities)
@@ -59,6 +69,7 @@ func CapabilitiesHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	w.Header().Set("response-type", "application/xml")
+	w.Header().Set("Content-Type", "application/xml")
+	fmt.Fprint(w, xml.Header)
 	fmt.Fprint(w, string(data))
 }

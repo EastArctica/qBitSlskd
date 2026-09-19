@@ -2,6 +2,7 @@ package torznab
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha1"
 	"encoding/json"
 	"encoding/xml"
@@ -18,43 +19,42 @@ import (
 	"github.com/google/uuid"
 )
 
+// Every call out to slskd goes through one client with a timeout, so a slskd
+// that accepts a connection and then stalls cannot pin a handler forever.
+var slskdClient = &http.Client{Timeout: 60 * time.Second}
+
+const (
+	// slskd caps the search itself at SearchRequest.SearchTimeout, so a search
+	// still incomplete well past that is never going to finish and the poll
+	// loop has to give up rather than spin.
+	searchPollTimeout  = 60 * time.Second
+	searchPollInterval = 1 * time.Second
+)
+
 func SearchHandler(w http.ResponseWriter, req *http.Request, cache *models.Cache) {
-	startSearchResponseData, http_err := initSearch(req)
+	startSearchResponse, http_err := initSearch(req)
 	if http_err != nil {
 		http.Error(w, http_err.Err, http_err.Code)
 		return
 	}
 
-	var startSearchResponse models.SearchResponse
-	err := json.Unmarshal(startSearchResponseData, &startSearchResponse)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
+	// initSearch has already rejected the request if this is missing.
 	apiKey := req.URL.Query().Get("apikey")
-	if apiKey == "" {
-		println("No api key")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
 
-	var search_response *models.SearchResponse = nil
-
-	search_response, http_err = blockUntilSearchComplete(startSearchResponse.ID, apiKey)
+	search_response, http_err := blockUntilSearchComplete(startSearchResponse.ID, apiKey)
 	if http_err != nil {
 		http.Error(w, http_err.Err, http_err.Code)
 		return
 	}
 
-	fmt.Println(search_response.ID)
-
-	var search_results []models.SearchResult = make([]models.SearchResult, 0)
-
-	search_results, http_err = getSearchResults(search_response.ID, apiKey)
+	search_results, http_err := getSearchResults(search_response.ID, apiKey)
 	if http_err != nil {
 		http.Error(w, http_err.Err, http_err.Code)
 		return
+	}
+
+	if config.DELETE_SEARCHES {
+		deleteSearch(search_response.ID, apiKey)
 	}
 
 	items := buildItems(search_results, cache, apiKey)
@@ -102,11 +102,12 @@ func SearchHandler(w http.ResponseWriter, req *http.Request, cache *models.Cache
 
 	// fmt.Printf("Finished search for %s\n", )
 
-	w.Header().Set("response-type", "application/xml")
+	w.Header().Set("Content-Type", "application/xml")
+	fmt.Fprint(w, xml.Header)
 	fmt.Fprint(w, string(data))
 }
 
-func initSearch(req *http.Request) ([]byte, *models.HttpError) {
+func initSearch(req *http.Request) (*models.SearchResponse, *models.HttpError) {
 	searchId, err := uuid.NewUUID()
 	if err != nil {
 		fmt.Printf("Failed to generate new UUID: %s\n", err.Error())
@@ -156,7 +157,6 @@ func initSearch(req *http.Request) ([]byte, *models.HttpError) {
 	}
 
 	// Search with query
-	client := &http.Client{}
 	startSearchReq, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v0/searches", config.SLSKD_ROOT), bytes.NewBuffer(searchReqData))
 	if err != nil {
 		fmt.Printf("Failed to create search request: %s\n", err)
@@ -166,11 +166,12 @@ func initSearch(req *http.Request) ([]byte, *models.HttpError) {
 	startSearchReq.Header.Add("X-API-Key", apiKey)
 	startSearchReq.Header.Add("Content-Type", "application/json")
 
-	startSearchRes, err := client.Do(startSearchReq)
+	startSearchRes, err := slskdClient.Do(startSearchReq)
 	if err != nil {
 		// TODO: Actually check the error
 		return nil, models.HttpError_From("Internal server error", http.StatusInternalServerError)
 	}
+	defer startSearchRes.Body.Close()
 
 	if startSearchRes.StatusCode == 401 || startSearchRes.StatusCode == 403 {
 		return nil, models.HttpError_From("Forbidden", http.StatusForbidden)
@@ -182,29 +183,44 @@ func initSearch(req *http.Request) ([]byte, *models.HttpError) {
 		return nil, models.HttpError_From("Internal Server Error", http.StatusInternalServerError)
 	}
 
-	return startSearchResData, nil
+	var startSearchResponse models.SearchResponse
+	if err := json.Unmarshal(startSearchResData, &startSearchResponse); err != nil {
+		fmt.Printf("Failed to unmarshal search response %s\n", err)
+		return nil, models.HttpError_From("Internal Server Error", http.StatusInternalServerError)
+	}
+
+	return &startSearchResponse, nil
 }
 
 func blockUntilSearchComplete(id string, apiKey string) (*models.SearchResponse, *models.HttpError) {
-	client := &http.Client{}
-
 	statusURL := fmt.Sprintf("%s/api/v0/searches/%s", config.SLSKD_ROOT, id)
-	statusReq, err := http.NewRequest("GET", statusURL, nil)
-	if err != nil {
-		return nil, models.HttpError_From("Internal server error", http.StatusInternalServerError)
-	}
 
-	// include API key header
-	statusReq.Header.Add("X-API-Key", apiKey)
+	ctx, cancel := context.WithTimeout(context.Background(), searchPollTimeout)
+	defer cancel()
 
 	for {
-
-		statusRes, err := client.Do(statusReq)
+		// A request carrying a context cannot be replayed once that context is
+		// done, so each poll builds its own.
+		statusReq, err := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
 		if err != nil {
 			return nil, models.HttpError_From("Internal server error", http.StatusInternalServerError)
 		}
 
+		// include API key header
+		statusReq.Header.Add("X-API-Key", apiKey)
+
+		statusRes, err := slskdClient.Do(statusReq)
+		if err != nil {
+			if ctx.Err() != nil {
+				fmt.Printf("Timed out waiting for search %s to complete\n", id)
+				return nil, models.HttpError_From("Gateway timeout", http.StatusGatewayTimeout)
+			}
+
+			return nil, models.HttpError_From("Internal server error", http.StatusInternalServerError)
+		}
+
 		if statusRes.StatusCode == 403 {
+			statusRes.Body.Close()
 			return nil, models.HttpError_From("Forbidden", http.StatusForbidden)
 		}
 
@@ -224,20 +240,23 @@ func blockUntilSearchComplete(id string, apiKey string) (*models.SearchResponse,
 			return &state, nil
 		}
 
-		time.Sleep(1 * time.Second)
+		select {
+		case <-ctx.Done():
+			fmt.Printf("Timed out waiting for search %s to complete\n", id)
+			return nil, models.HttpError_From("Gateway timeout", http.StatusGatewayTimeout)
+		case <-time.After(searchPollInterval):
+		}
 	}
 }
 
 func getSearchResults(search_id string, api_key string) ([]models.SearchResult, *models.HttpError) {
-	client := &http.Client{}
-
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v0/searches/%s/responses", config.SLSKD_ROOT, search_id), nil)
 	if err != nil {
 		return nil, models.HttpError_From("Internal server error", http.StatusInternalServerError)
 	}
 	req.Header.Add("X-API-Key", api_key)
 
-	res, err := client.Do(req)
+	res, err := slskdClient.Do(req)
 	if err != nil {
 		return nil, models.HttpError_From("Internal server error", http.StatusInternalServerError)
 	}
@@ -255,6 +274,25 @@ func getSearchResults(search_id string, api_key string) ([]models.SearchResult, 
 	}
 
 	return apiResults, nil
+}
+
+// slskd holds on to every search until it is told not to, so drop it once the
+// responses have been read. Best effort: a search that outlives its results
+// wastes memory in slskd but is not worth failing the feed over.
+func deleteSearch(search_id string, api_key string) {
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/api/v0/searches/%s", config.SLSKD_ROOT, search_id), nil)
+	if err != nil {
+		fmt.Printf("Failed to build delete request for search %s: %s\n", search_id, err)
+		return
+	}
+	req.Header.Add("X-API-Key", api_key)
+
+	res, err := slskdClient.Do(req)
+	if err != nil {
+		fmt.Printf("Failed to delete search %s: %s\n", search_id, err)
+		return
+	}
+	res.Body.Close()
 }
 
 // Newznab category for Audio. This also has to appear in the caps <categories>
@@ -290,6 +328,12 @@ func groupByDirectory(results []models.SearchResult) []releaseCandidate {
 			}
 
 			directory := slskdDirectory(file.Filename)
+			// A file sitting at the root of a share has no directory to name a
+			// release after, and an item with an empty title is something Lidarr
+			// can never match, so it is dropped rather than published blank.
+			if directory == "" {
+				continue
+			}
 
 			candidate, ok := directories[directory]
 			if !ok {

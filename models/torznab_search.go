@@ -56,8 +56,8 @@ type TorznabSearchResults struct {
 	XMLName xml.Name             `xml:"rss"`
 	Text    string               `xml:",chardata"`
 	Version string               `xml:"version,attr"`
-	Atom    string               `xml:"atom,attr"`
-	Torznab string               `xml:"torznab,attr"`
+	Atom    string               `xml:"xmlns:atom,attr"`
+	Torznab string               `xml:"xmlns:torznab,attr"`
 	Channel TorznabSearchChannel `xml:"channel"`
 }
 
@@ -122,8 +122,13 @@ type TorznabChannelItemEnclosure struct {
 	Type   string `xml:"type,attr"`
 }
 
+// Lidarr and Prowlarr look these up by namespace, not by tag name, so an attr
+// emitted as a bare <attr> is silently ignored and the release loses its size,
+// seeders and volume factors. Naming the element with its namespace URL makes
+// the encoder qualify it, which is the same node identity as <torznab:attr>.
 type TorznabChannelItemAttr struct {
-	Text  string `xml:",chardata"`
-	Name  string `xml:"name,attr"`
-	Value string `xml:"value,attr"`
+	XMLName xml.Name `xml:"http://torznab.com/schemas/2015/feed attr"`
+	Text    string   `xml:",chardata"`
+	Name    string   `xml:"name,attr"`
+	Value   string   `xml:"value,attr"`
 }

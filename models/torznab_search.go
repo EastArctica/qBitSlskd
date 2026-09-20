@@ -33,11 +33,16 @@ type SearchResponse struct {
 }
 
 type SearchResultFile struct {
-	Code      int    `json:"code"`
-	Extension string `json:"extension"`
-	Filename  string `json:"filename"`
-	Size      int64  `json:"size"`
-	IsLocked  bool   `json:"isLocked"`
+	Code              int    `json:"code"`
+	Extension         string `json:"extension"`
+	Filename          string `json:"filename"`
+	Size              int64  `json:"size"`
+	IsLocked          bool   `json:"isLocked"`
+	BitRate           int    `json:"bitRate"`    // kbps, averaged over the file when it is VBR
+	BitDepth          int    `json:"bitDepth"`   // Bits per sample, 24 for hi-res FLAC
+	SampleRate        int    `json:"sampleRate"` // Hz
+	Length            int    `json:"length"`     // Duration in seconds, not a byte count; Size is the byte count
+	IsVariableBitRate *bool  `json:"isVariableBitRate"`
 }
 
 type SearchResult struct {

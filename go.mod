@@ -9,4 +9,4 @@ require (
 	github.com/joho/godotenv v1.5.1
 )
 
-require github.com/jackpal/bencode-go v1.2.0 // indirect
+require github.com/jackpal/bencode-go v1.2.0

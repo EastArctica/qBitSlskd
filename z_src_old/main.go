@@ -349,17 +349,17 @@ func torrentsInfoHandler(w http.ResponseWriter, req *http.Request) {
 			albumNameMutex.RUnlock()
 
 			t := core.Torrent{
-				Hash: hash,
-				Name: albumName,
-				Size: int64(totalBytes),
+				Hash:           hash,
+				Name:           albumName,
+				Size:           int64(totalBytes),
 				CompletedBytes: int64(totalBytes - bytesRemaining),
-				DownloadSpeed: int64(downloadSpeed),
-				Status: status,
-				AddedAt: time.Unix(firstAddedAt, 0),
-				CompletedAt: completionTime,
-				Category: "",
-				SavePath: path,
-				SourceUser: user.Username,
+				DownloadSpeed:  int64(downloadSpeed),
+				Status:         status,
+				AddedAt:        time.Unix(firstAddedAt, 0),
+				CompletedAt:    completionTime,
+				Category:       "",
+				SavePath:       path,
+				SourceUser:     user.Username,
 			}
 
 			torrent := translate.QBTorrentInfoFromCore(t)
@@ -595,6 +595,7 @@ func main() {
 	// Categories are entirely fake as there is no similar thing in slskd, also we don't need them
 	mux.HandleFunc("/api/v2/torrents/categories", categoriesHandler)
 	mux.HandleFunc("/api/v2/torrents/createCategory", createCategoryHandler)
+
 	mux.HandleFunc("/api/v2/torrents/info", torrentsInfoHandler)
 	mux.HandleFunc("/api/v2/torrents/add", addTorrentHandler)
 	mux.HandleFunc("/api/v2/torrents/delete", deleteTorrentHandler)

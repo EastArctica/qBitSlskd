@@ -389,14 +389,14 @@ func buildItems(results []models.SearchResult, cache *models.Cache, apiKey strin
 		// to agree or the grab cannot be matched to a Soulseek user and path.
 		hash := releaseHash(candidate.username, candidate.directory)
 
-		cache.CacheMutex.Lock()
-		cache.SearchCache[hash] = models.SearchCacheEntry{
+		cache.Mutex.Lock()
+		cache.Search[hash] = models.SearchCacheEntry{
 			SearchedAt: time.Now(),
 			Files:      candidate.files,
 			Username:   candidate.username,
 			Name:       name,
 		}
-		cache.CacheMutex.Unlock()
+		cache.Mutex.Unlock()
 
 		downloadURL := fmt.Sprintf("%s/api?t=custom_download&id=%s&apikey=%s",
 			config.QBITSLSKD_ROOT, hash, url.QueryEscape(apiKey))

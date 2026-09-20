@@ -31,9 +31,9 @@ func CustomDownloadHandler(w http.ResponseWriter, req *http.Request, cache *mode
 	// TODO: Verify key? uuid is kinda secure
 	cacheId := req.URL.Query().Get("id")
 
-	cache.CacheMutex.Lock()
-	cacheEntry, ok := cache.SearchCache[cacheId]
-	cache.CacheMutex.Unlock()
+	cache.Mutex.Lock()
+	cacheEntry, ok := cache.Search[cacheId]
+	cache.Mutex.Unlock()
 	if !ok {
 		http.Error(w, "id param does not map to a valid cache entry", http.StatusBadRequest)
 		return
@@ -125,9 +125,9 @@ func CustomDownloadHandler(w http.ResponseWriter, req *http.Request, cache *mode
 		return
 	}
 
-	cache.CacheMutex.Lock()
-	cache.SearchCache[infoHash] = cacheEntry
-	cache.CacheMutex.Unlock()
+	cache.Mutex.Lock()
+	cache.Search[infoHash] = cacheEntry
+	cache.Mutex.Unlock()
 
 	w.Header().Set("Content-Type", "application/x-bittorrent")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", cacheEntry.Name+".torrent"))

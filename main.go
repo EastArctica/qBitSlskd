@@ -6,27 +6,35 @@ import (
 
 	"github.com/EastArctica/qbitslskd/config"
 	"github.com/EastArctica/qbitslskd/models"
+	qbittorrent "github.com/EastArctica/qbitslskd/qBitTorrent"
 	"github.com/EastArctica/qbitslskd/torznab"
 )
 
 var cache models.Cache = models.Cache{
-	SearchCache: make(map[string]models.SearchCacheEntry),
+	Search: make(map[string]models.SearchCacheEntry),
 }
 
+// var categories map[string]Category = map[string]Category{
+// 	"lidarr": {
+// 		Name:     "lidarr",
+// 		SavePath: "",
+// 	},
+// }
+
 func HanndleQbtApiRequests(w http.ResponseWriter, req *http.Request) {
-	// cache_ptr := &cache
+	cache_ptr := &cache
 
 	switch req.URL.Path {
 	case "/api/v2/app/webapiVersion":
-		break
+		qbittorrent.Version(w)
 	case "/api/v2/auth/login":
-		break
+		qbittorrent.Login(w, req)
 	case "/api/v2/app/preferences":
-		break
+		qbittorrent.Preferences(w)
 	case "/api/v2/torrents/categories":
-		break
+		qbittorrent.CategoriesHandler(w, req, cache_ptr)
 	case "/api/v2/torrents/createCategory":
-		break
+		qbittorrent.CreateCategoryHandler(w, req, cache_ptr)
 	case "/api/v2/torrents/info":
 		break
 	case "/api/v2/torrents/add":
@@ -48,7 +56,7 @@ func HanndleTorznabApiRequests(w http.ResponseWriter, req *http.Request) {
 		torznab.SearchHandler(w, req, cache_ptr)
 		return
 	case "custom_download":
-		// Note: This is NOT a real torznab function and is custom to qBitSlskd
+		// This is NOT a real torznab function and is custom to qBitSlskd
 		torznab.CustomDownloadHandler(w, req, cache_ptr)
 		return
 	}

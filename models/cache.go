@@ -5,6 +5,8 @@ import (
 )
 
 type Cache struct {
-	CacheMutex  sync.Mutex
-	SearchCache map[string]SearchCacheEntry
+	Mutex      sync.Mutex
+	Search     map[string]SearchCacheEntry
+	Categories map[string]Category
+	AlbumName  map[string]string
 }

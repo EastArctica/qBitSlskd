@@ -47,10 +47,10 @@ func HanndleTorznabApiRequests(w http.ResponseWriter, req *http.Request) {
 	case "search":
 		torznab.SearchHandler(w, req, cache_ptr)
 		return
-		// case "custom_download":
-		// 	// Note: This is NOT a real torznab function and is custom to qBitSlskd
-		// 	CustomDownloadHandler(w, req)
-		// 	return
+	case "custom_download":
+		// Note: This is NOT a real torznab function and is custom to qBitSlskd
+		torznab.CustomDownloadHandler(w, req, cache_ptr)
+		return
 	}
 
 }

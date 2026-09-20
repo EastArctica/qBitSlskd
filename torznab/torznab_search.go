@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -53,8 +54,6 @@ func SearchHandler(w http.ResponseWriter, req *http.Request, cache *models.Cache
 		http.Error(w, http_err.Err, http_err.Code)
 		return
 	}
-
-	fmt.Println("Finished slskd search, querying for names...")
 
 	if config.DELETE_SEARCHES {
 		deleteSearch(search_response.ID, apiKey)
@@ -276,17 +275,6 @@ func getSearchResults(search_id string, api_key string) ([]models.SearchResult, 
 		return nil, models.HttpError_From("Internal server error", http.StatusInternalServerError)
 	}
 
-	for _, apiResult := range apiResults {
-		for _, file := range apiResult.Files {
-			if file.Extension != "" {
-				continue
-			}
-
-			split := strings.Split(file.Filename, ".")
-			file.Extension = split[len(split)-1]
-		}
-	}
-
 	return apiResults, nil
 }
 
@@ -386,11 +374,12 @@ func buildItems(results []models.SearchResult, cache *models.Cache, apiKey strin
 		// The required format for Lidarr is `Artist - Album (Year) [Quality]`
 		// Quality is usually the file extension.
 		base_name := slskdBasename(candidate.directory)
-		file_ext := candidate.files[0].Extension
 		album, err := lookupAlbum(base_name)
 		if err != nil {
 			continue
 		}
+
+		file_ext := getLidarrCompatibleFileExtension(candidate)
 
 		name := fmt.Sprintf("%s - %s (%s) [%s]", album.Artist, album.Title, album.Year, file_ext)
 
@@ -550,4 +539,88 @@ func clean(s string) string {
 	s = parenRe.ReplaceAllString(s, " ")
 	s = yearRe.ReplaceAllString(s, " ")
 	return strings.TrimSpace(wsRe.ReplaceAllString(s, " "))
+}
+
+func getLidarrCompatibleFileExtension(candidate releaseCandidate) string {
+	file_split := strings.Split(candidate.files[0].Filename, ".")
+	file_ext := strings.ToLower(file_split[len(file_split)-1])
+
+	lidarr_quality := file_ext
+
+	sample_file := candidate.files[0]
+
+	vbr := false
+	if sample_file.IsVariableBitRate != nil {
+		vbr = *sample_file.IsVariableBitRate
+	}
+
+	switch file_ext {
+	case "flac":
+		if sample_file.BitDepth >= 24 {
+			lidarr_quality = "flac 24bit"
+		} else {
+			lidarr_quality = "flac"
+		}
+	case "mp3":
+		if vbr && sample_file.BitRate >= 255 {
+			lidarr_quality = "mp3 vbr v0"
+		} else if vbr {
+			lidarr_quality = "mp3 vbr v2"
+		} else {
+			arr := []int{96, 128, 160, 192, 256, 320}
+			lidarr_quality = fmt.Sprintf("mp3 %d", genericRoundTo(sample_file.BitRate, arr))
+		}
+	case "m4a", "m4b", "m4p", "mp4", "aac":
+		if sample_file.BitDepth >= 24 {
+			lidarr_quality = "alac 24bit"
+		} else if sample_file.BitRate > 500 {
+			lidarr_quality = "alac"
+		} else if sample_file.BitRate >= 176 {
+			arr := []int{192, 256, 320}
+			lidarr_quality = fmt.Sprintf("aac %d", genericRoundTo(sample_file.BitRate, arr))
+		} else {
+			lidarr_quality = "aac"
+		}
+	case "ogg", "oga", "opus":
+		arr := []int{160, 192, 224, 256, 320, 500}
+		lidarr_quality = fmt.Sprintf("%s %d", file_ext, genericRoundTo(sample_file.BitRate, arr))
+	case "ape":
+		lidarr_quality = "ape"
+	case "wv":
+		lidarr_quality = "wavpack"
+	case "wav":
+		lidarr_quality = "wav"
+	case "wma":
+		lidarr_quality = "wma"
+	}
+
+	return lidarr_quality
+}
+
+func genericRoundTo(x int, valid_values []int) int {
+	sorted_valid_values := sort.IntSlice(valid_values)
+
+	for i, value := range sorted_valid_values {
+		if x == value {
+			return value
+		}
+
+		if x < value {
+			continue
+		}
+
+		if value == sorted_valid_values[len(sorted_valid_values)-1] {
+			return value
+		}
+
+		dist_to_lesser := x - value
+		dist_to_greater := sorted_valid_values[i+1] - x
+
+		if dist_to_lesser < dist_to_greater {
+			return value
+		}
+		return sorted_valid_values[i+1]
+	}
+
+	return sorted_valid_values[0]
 }

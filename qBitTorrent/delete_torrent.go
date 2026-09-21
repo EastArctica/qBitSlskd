@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/EastArctica/qbitslskd/slskd"
+	"github.com/EastArctica/qbitslskd/utils"
 )
 
 func DeleteTorrentHandler(w http.ResponseWriter, req *http.Request) {
@@ -55,7 +56,7 @@ func DeleteTorrentHandler(w http.ResponseWriter, req *http.Request) {
 	DownloadsLoop:
 		for _, user := range downloads {
 			for _, dir := range user.Directories {
-				newHash, err := sha1Hash(user.Username + dir.Directory)
+				newHash, err := utils.Sha1Hash(user.Username + dir.Directory)
 				if err != nil {
 					continue
 				}

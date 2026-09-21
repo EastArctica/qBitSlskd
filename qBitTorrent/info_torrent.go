@@ -1,8 +1,6 @@
 package qbittorrent
 
 import (
-	"bytes"
-	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -55,7 +53,7 @@ func TorrentsInfoHandler(w http.ResponseWriter, req *http.Request, cache *models
 			// The release hash is the only handle we have on a slskd download,
 			// so it is what ties the transfer back to the search result Lidarr
 			// grabbed, and with it the release name and the infohash.
-			release := releaseHash(user.Username, dir.Directory)
+			release := utils.ReleaseHash(user.Username, dir.Directory)
 
 			cache.Mutex.Lock()
 			cacheEntry, known := cache.Search[release]
@@ -163,97 +161,4 @@ func TorrentsInfoHandler(w http.ResponseWriter, req *http.Request, cache *models
 
 	w.Header().Set("content-type", "application/json")
 	w.Write(torrentsData)
-}
-
-// TODO: Move these two functions elsewhere (somewhere more accessible)
-func findAudioFile(files []slskd.SlskdDownloadsFiles) (*slskd.SlskdDownloadsFiles, error) {
-	for _, file := range files {
-		if isAudioFile(file.Filename) {
-			return &file, nil
-		}
-	}
-
-	return nil, fmt.Errorf("no audio files found")
-}
-
-func isAudioFile(path string) bool {
-	for _, extension := range AUDIO_EXTENSIONS {
-		if bytes.HasSuffix([]byte(path), []byte(extension)) {
-			return true
-		}
-	}
-
-	return false
-}
-
-var AUDIO_EXTENSIONS = []string{
-	".mp3",
-	".aac",
-	".ogg",
-	".wma",
-	".opus",
-	".m4a",
-	".mp2",
-	".ac3",
-	".eac3",
-	".dts",
-	".amr",
-	".awb",
-	".ra",
-	".ram",
-	".flac",
-	".alac",
-	".ape",
-	".wv",
-	".tta",
-	".shn",
-	".wav",
-	".aiff",
-	".aif",
-	".pcm",
-	".au",
-	".bwf",
-	".rf64",
-	".mid",
-	".midi",
-	".kar",
-	".rmi",
-	".mod",
-	".s3m",
-	".xm",
-	".it",
-	".mtm",
-	".umx",
-	".cda",
-	".dss",
-	".ds2",
-	".dvf",
-	".msv",
-	".gsm",
-	".vox",
-	".sln",
-	".voc",
-	".iff",
-	".svx",
-}
-
-func sha1Hash(str string) (string, error) {
-	hasher := sha1.New()
-	_, err := hasher.Write([]byte(str))
-	if err != nil {
-		return "", fmt.Errorf("failed to write to hasher: %w", err)
-	}
-
-	hashBytes := hasher.Sum(nil)
-	hashHex := fmt.Sprintf("%x", hashBytes)
-
-	return hashHex, nil
-}
-
-func releaseHash(username string, directory string) string {
-	hasher := sha1.New()
-	// hash.Hash promises that Write never returns an error.
-	hasher.Write([]byte(username + directory))
-
-	return fmt.Sprintf("%x", hasher.Sum(nil))
 }

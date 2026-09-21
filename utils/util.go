@@ -1,4 +1,4 @@
-package main
+package utils
 
 import (
 	"bytes"
@@ -43,6 +43,6 @@ func Average[T Number](slice []T) T {
 	return sum / T(len(slice))
 }
 
-func includes(str string, substr string) bool {
+func Includes(str string, substr string) bool {
 	return bytes.Contains([]byte(str), []byte(substr))
 }

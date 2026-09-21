@@ -1,4 +1,4 @@
-package core
+package models
 
 import "time"
 
@@ -15,7 +15,7 @@ const (
 	StatusError
 )
 
-type Torrent struct {
+type QbtTorrent struct {
 	Hash           string
 	Name           string
 	Size           int64 // total bytes

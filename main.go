@@ -11,15 +11,9 @@ import (
 )
 
 var cache models.Cache = models.Cache{
-	Search: make(map[string]models.SearchCacheEntry),
+	Search:     make(map[string]models.SearchCacheEntry),
+	Categories: make(map[string]models.Category),
 }
-
-// var categories map[string]Category = map[string]Category{
-// 	"lidarr": {
-// 		Name:     "lidarr",
-// 		SavePath: "",
-// 	},
-// }
 
 func HanndleQbtApiRequests(w http.ResponseWriter, req *http.Request) {
 	cache_ptr := &cache
@@ -36,9 +30,9 @@ func HanndleQbtApiRequests(w http.ResponseWriter, req *http.Request) {
 	case "/api/v2/torrents/createCategory":
 		qbittorrent.CreateCategoryHandler(w, req, cache_ptr)
 	case "/api/v2/torrents/info":
-		break
+		qbittorrent.TorrentsInfoHandler(w, req, cache_ptr)
 	case "/api/v2/torrents/add":
-		break
+		qbittorrent.AddTorrentHandler(w, req, cache_ptr)
 	case "/api/v2/torrents/delete":
 		break
 	}
@@ -56,8 +50,7 @@ func HanndleTorznabApiRequests(w http.ResponseWriter, req *http.Request) {
 		torznab.SearchHandler(w, req, cache_ptr)
 		return
 	case "custom_download":
-		// This is NOT a real torznab function and is custom to qBitSlskd
-		torznab.CustomDownloadHandler(w, req, cache_ptr)
+		torznab.CustomDownloadHandler(w, req, cache_ptr) // Note: This is NOT a real torznab function and is custom to qBitSlskd
 		return
 	}
 
@@ -69,8 +62,6 @@ func main() {
 
 	mux.HandleFunc("/api/v2/", HanndleQbtApiRequests)
 	mux.HandleFunc("/api", HanndleTorznabApiRequests)
-
-	// mux.Handle("/", logAll())
 
 	fmt.Printf("qBitSlskd started on port %s!\n", config.PORT)
 	http.ListenAndServe(fmt.Sprintf(":%s", config.PORT), mux)

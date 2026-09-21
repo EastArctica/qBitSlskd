@@ -17,7 +17,6 @@ var DOWNLOAD_AUDIO_ONLY bool = false
 var PORT string = "3000"
 var SLSKD_ROOT string
 var QBITSLSKD_ROOT string
-var GEMINI_API_KEY string
 
 func Init() {
 	godotenv.Load()
@@ -72,10 +71,4 @@ func Init() {
 		log.Fatal("QBITSLSKD_ROOT env var must be set to the qbitslskd domain. Ex. https://qbitslskd.example.com or http://qbitslskd.local:3000 (this needs to be accessible by lidarr)\n")
 	}
 	QBITSLSKD_ROOT = qbitSlskdRoot
-
-	geminiApiKey, ok := os.LookupEnv("GEMINI_API_KEY")
-	if !ok {
-		log.Fatal("GEMINI_API_KEY env var must be set to a valid google api key with access to the Generative Language API. This is used to convert the soulseek paths to album names.\n")
-	}
-	GEMINI_API_KEY = geminiApiKey
 }

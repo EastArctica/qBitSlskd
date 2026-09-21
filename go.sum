@@ -4,3 +4,5 @@ github.com/jackpal/bencode-go v1.2.0 h1:KE8gqa0AVB+1OeAC/q9AOMGy9hl+zpcgshmN8Jlo
 github.com/jackpal/bencode-go v1.2.0/go.mod h1:6jI9mUjO3GQbZti3JizEfxTzRfWOM8oBBcwbwlTfceI=
 github.com/joho/godotenv v1.5.1 h1:7eLL/+HRGLY0ldzfGMeQkb7vMd0as4CfYvUVzLqw0N0=
 github.com/joho/godotenv v1.5.1/go.mod h1:f4LDr5Voq0i2e/R5DDNOoa2zzDfwtkZa6DnEwAbqwq4=
+golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba h1:Ck8QetSgk912qxWLMCKxd0in+aiyBQyDSMae6e/xmpU=
+golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba/go.mod h1:50RgIsmK7OwqzTTeqcSXQW8SswW0o8fRcDxmqGluJ8E=

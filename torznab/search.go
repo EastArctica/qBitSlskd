@@ -404,9 +404,9 @@ func buildItems(results []models.SearchResult, cache *models.Cache, apiKey strin
 		// Nothing here really seeds, but a release reporting zero seeders is
 		// treated as unavailable and dropped, so every release gets at least one.
 		// Peers with a free upload slot get two so they sort above queued ones.
-		seeders := 1
+		seeders := 0
 		if candidate.freeSlot {
-			seeders = 2
+			seeders = 100
 		}
 
 		size := strconv.FormatInt(candidate.totalSize, 10)

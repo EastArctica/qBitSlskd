@@ -36,7 +36,7 @@ func HanndleQbtApiRequests(w http.ResponseWriter, req *http.Request) {
 	case "/api/v2/torrents/add":
 		qbittorrent.AddTorrentHandler(w, req, cache_ptr)
 	case "/api/v2/torrents/delete":
-		break
+		qbittorrent.DeleteTorrentHandler(w, req)
 	}
 }
 

@@ -18,13 +18,12 @@ func AddTorrentHandler(w http.ResponseWriter, req *http.Request, cache *models.C
 		return
 	}
 
-	sidCookie, err := req.Cookie("SID")
-	if err != nil {
-		fmt.Printf("SID Fail: %s\n", err)
+	apiKey, ok := APIKey(req)
+	if !ok {
+		fmt.Printf("AddTorrentHandler: no SID cookie or basic auth credentials\n")
 		http.Error(w, "Fails.", 200)
 		return
 	}
-	apiKey := sidCookie.Value
 
 	req.ParseMultipartForm(100 << 10) // 100MB
 
@@ -59,6 +58,29 @@ func AddTorrentHandler(w http.ResponseWriter, req *http.Request, cache *models.C
 		http.Error(w, "Fails.", 200)
 		return
 	}
+
+	// Lidarr only imports a download that comes back tagged with the category
+	// it grabbed under, and slskd knows nothing about categories, so the value
+	// has to be remembered here and replayed by /api/v2/torrents/info.
+	category := req.PostFormValue("category")
+	cacheEntry.Category = category
+
+	cache.Mutex.Lock()
+	cache.Search[torrentFile.Info.CacheId] = cacheEntry
+	if cacheEntry.InfoHash != "" {
+		cache.Search[cacheEntry.InfoHash] = cacheEntry
+	}
+	// qBittorrent creates an unknown category on add, and Lidarr checks that
+	// its category exists before it will import.
+	if category != "" {
+		if _, exists := cache.Categories[category]; !exists {
+			cache.Categories[category] = models.Category{
+				Name:     category,
+				SavePath: req.PostFormValue("savepath"),
+			}
+		}
+	}
+	cache.Mutex.Unlock()
 
 	filesRaw, err := json.Marshal(cacheEntry.Files)
 	if err != nil {

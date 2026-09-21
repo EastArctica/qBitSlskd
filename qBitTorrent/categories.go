@@ -31,24 +31,22 @@ func CreateCategoryHandler(w http.ResponseWriter, req *http.Request, cache *mode
 		return
 	}
 
-	// Check if category already exists
-	cache.Mutex.Lock()
-	_, ok := cache.Categories[category]
-	cache.Mutex.Lock()
+	// TODO: In qBit, the category has other restrictions. In this we'll ignore them.
 
-	if !ok {
+	cache.Mutex.Lock()
+	_, exists := cache.Categories[category]
+	if !exists {
+		cache.Categories[category] = models.Category{
+			Name:     category,
+			SavePath: req.PostForm.Get("savePath"),
+		}
+	}
+	cache.Mutex.Unlock()
+
+	if exists {
 		http.Error(w, "Unable to create category", http.StatusConflict)
 		return
 	}
 
-	// TODO: In qBit, the category has other restrictions. In this we'll ignore them.
-
-	cache.Mutex.Lock()
-	cache.Categories[category] = models.Category{
-		Name:     category,
-		SavePath: req.Form.Get("savePath"),
-	}
-	cache.Mutex.Unlock()
-
-	CategoriesHandler(w, req, cache)
+	w.WriteHeader(http.StatusOK)
 }

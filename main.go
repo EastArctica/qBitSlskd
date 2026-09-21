@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/EastArctica/qbitslskd/config"
@@ -64,5 +66,33 @@ func main() {
 	mux.HandleFunc("/api", HanndleTorznabApiRequests)
 
 	fmt.Printf("qBitSlskd started on port %s!\n", config.PORT)
-	http.ListenAndServe(fmt.Sprintf(":%s", config.PORT), mux)
+	http.ListenAndServe(fmt.Sprintf(":%s", config.PORT), logAll(mux))
+}
+
+func logAll(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// Print request line
+		fmt.Printf("%s %s %s\n", req.Method, req.URL.RequestURI(), req.Proto)
+		// Print headers
+		for name, values := range req.Header {
+			for _, v := range values {
+				fmt.Printf("%s: %s\n", name, v)
+			}
+		}
+		fmt.Println()
+
+		// Print body
+		if req.Body != nil {
+			bodyBytes, err := io.ReadAll(req.Body)
+			if err != nil {
+				fmt.Printf("Error reading body: %v\n", err)
+			} else if len(bodyBytes) > 0 {
+				fmt.Printf("%s\n", string(bodyBytes))
+			}
+			// Restore Body so handlers down‐stream (if any) can still read it
+			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		}
+
+		next.ServeHTTP(w, req)
+	})
 }

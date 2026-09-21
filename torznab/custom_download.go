@@ -125,7 +125,14 @@ func CustomDownloadHandler(w http.ResponseWriter, req *http.Request, cache *mode
 		return
 	}
 
+	// Both keys point at the same release, so both need the infohash: the
+	// release-hash entry is the one /api/v2/torrents/info reaches (it can only
+	// derive a release hash from the slskd username and directory), and that is
+	// where the hash Lidarr is waiting for has to be readable from.
+	cacheEntry.InfoHash = infoHash
+
 	cache.Mutex.Lock()
+	cache.Search[cacheId] = cacheEntry
 	cache.Search[infoHash] = cacheEntry
 	cache.Mutex.Unlock()
 

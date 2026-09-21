@@ -21,12 +21,11 @@ func TorrentsInfoHandler(w http.ResponseWriter, req *http.Request, cache *models
 	// There's a lot of scawwy parameters to this :3
 	// TODO: filter, category, tag, sort, reverse, limit, offset, hashes
 
-	sidCookie, err := req.Cookie("SID")
-	if err != nil {
+	apiKey, ok := APIKey(req)
+	if !ok {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	apiKey := sidCookie.Value
 
 	users, err := slskd.GetDownloads(apiKey)
 	if err != nil {
@@ -35,16 +34,9 @@ func TorrentsInfoHandler(w http.ResponseWriter, req *http.Request, cache *models
 		return
 	}
 
-	var albums []models.SearchCacheEntry = make([]models.SearchCacheEntry, 0)
-
-	cache.Mutex.Lock()
-	for _, user := range users {
-		for _, directory := range user.Directories {
-			hash := releaseHash(user.Username, directory.Directory)
-			albums = append(albums, cache.Search[hash])
-		}
-	}
-	cache.Mutex.Unlock()
+	// qBittorrent filters the list server side, and Lidarr asks for its own
+	// category.
+	categoryFilter := req.URL.Query().Get("category")
 
 	// Convert downloads to torrents info
 	// TODO: This doesn't need to be a slice, we can determine the size by summing the dirs
@@ -60,16 +52,38 @@ func TorrentsInfoHandler(w http.ResponseWriter, req *http.Request, cache *models
 			var downloadSpeed int64 = 0
 			var status models.Status = models.StatusDownloading
 
-			audioPath := dir.Directory
-			audioFile, err := findAudioFile(dir.Files)
-			if err == nil {
-				audioPath = audioFile.Filename
+			// The release hash is the only handle we have on a slskd download,
+			// so it is what ties the transfer back to the search result Lidarr
+			// grabbed, and with it the release name and the infohash.
+			release := releaseHash(user.Username, dir.Directory)
+
+			cache.Mutex.Lock()
+			cacheEntry, known := cache.Search[release]
+			cache.Mutex.Unlock()
+
+			if categoryFilter != "" && cacheEntry.Category != categoryFilter {
+				continue
 			}
 
-			hash, err := sha1Hash(user.Username + dir.Directory)
-			if err != nil {
-				fmt.Printf("Failed to calculate sha1 hash for: %s\n", user.Username+dir.Directory)
-				continue
+			// Lidarr waits for a torrent carrying the infohash it computed from
+			// the .torrent we served; reporting the release hash instead leaves
+			// the queue item unmatched, which is why no album details show up
+			// while a download is running.
+			hash := cacheEntry.InfoHash
+			if hash == "" {
+				hash = release
+			}
+
+			// Falling back to the directory keeps an unknown release visible
+			// with something readable rather than a blank row.
+			name := cacheEntry.Name
+			if name == "" {
+				dirParts := strings.Split(dir.Directory, "\\")
+				name = dirParts[len(dirParts)-1]
+			}
+
+			if !known {
+				fmt.Printf("torrentsInfoHandler: no cached release for %s%s\n", user.Username, dir.Directory)
 			}
 
 			for _, file := range dir.Files {
@@ -119,33 +133,16 @@ func TorrentsInfoHandler(w http.ResponseWriter, req *http.Request, cache *models
 				path = config.INCOMPLETE_DIR + path
 			}
 
-			// Lidarr will only import from it's own categories, this is what we need to do to make it work
-			cache.Mutex.Lock()
-
-			allCategories := ""
-			for category := range cache.Categories {
-				if allCategories == "" {
-					allCategories += category
-				} else {
-					allCategories += "," + category
-				}
-			}
-			cache.Mutex.Unlock()
-
-			cache.Mutex.Lock()
-			albumName := cache.AlbumName[audioPath]
-			cache.Mutex.Unlock()
-
 			t := models.QbtTorrent{
 				Hash:           hash,
-				Name:           albumName,
+				Name:           name,
 				Size:           int64(totalBytes),
 				CompletedBytes: int64(totalBytes - bytesRemaining),
 				DownloadSpeed:  int64(downloadSpeed),
 				Status:         status,
 				AddedAt:        time.Unix(firstAddedAt, 0),
 				CompletedAt:    completionTime,
-				Category:       "",
+				Category:       cacheEntry.Category,
 				SavePath:       path,
 				SourceUser:     user.Username,
 			}

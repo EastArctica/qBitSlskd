@@ -8,6 +8,21 @@ import (
 	"github.com/EastArctica/qbitslskd/config"
 )
 
+// APIKey pulls the slskd api key out of a request. qBittorrent hands clients a
+// SID cookie after /auth/login, but Lidarr skips login entirely and just sends
+// HTTP basic auth on every request, so accept either.
+func APIKey(req *http.Request) (string, bool) {
+	if sidCookie, err := req.Cookie("SID"); err == nil && sidCookie.Value != "" {
+		return sidCookie.Value, true
+	}
+
+	if _, apiKey, ok := req.BasicAuth(); ok && apiKey != "" {
+		return apiKey, true
+	}
+
+	return "", false
+}
+
 func Version(w http.ResponseWriter) {
 	fmt.Fprintf(w, "2.11.4")
 }

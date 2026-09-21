@@ -128,7 +128,7 @@ func QBTorrentInfoFromCore(t QbtTorrent) Transate_QBTorrentInfo {
 		AmountLeft:               int(t.Size - t.CompletedBytes),
 		AutoTmm:                  false,
 		Availability:             1,
-		Category:                 "", // TODO: Lidarr only imports from it's own categories, we need to generate this value
+		Category:                 t.Category,
 		Comment:                  "",
 		Completed:                int(t.CompletedBytes),
 		CompletionOn:             completionOn,

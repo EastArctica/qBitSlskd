@@ -10,12 +10,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/EastArctica/qbitslskd/album_lookup"
 	"github.com/EastArctica/qbitslskd/config"
 	"github.com/EastArctica/qbitslskd/models"
 	"github.com/google/uuid"
@@ -373,11 +373,14 @@ func buildItems(results []models.SearchResult, cache *models.Cache, apiKey strin
 		// directory base_name matches nothing and the release gets discarded.
 		// The required format for Lidarr is `Artist - Album (Year) [Quality]`
 		// Quality is usually the file extension.
-		base_name := slskdBasename(candidate.directory)
-		album, err := lookupAlbum(base_name)
-		if err != nil {
+
+		album_ptr := album_lookup.LookupAlbum(candidate.directory)
+		if album_ptr == nil {
 			continue
 		}
+
+		// Insert trust me bro
+		album := *album_ptr
 
 		file_ext := getLidarrCompatibleFileExtension(candidate)
 
@@ -457,88 +460,6 @@ func slskdDirectory(filename string) string {
 	}
 
 	return filename[:index]
-}
-
-func slskdBasename(path string) string {
-	split_path := strings.Split(path, "\\")
-
-	if len(split_path) <= 2 {
-		return strings.Join(split_path, " ")
-	}
-
-	last_two := split_path[len(split_path)-2:]
-
-	return strings.Join(last_two, " ")
-}
-
-func lookupAlbum(name string) (*models.Album, error) {
-	var httpClient = &http.Client{Timeout: 60 * time.Second}
-
-	q := url.Values{}
-	q.Set("q", clean(name))
-	q.Set("limit", "1")
-
-	url := "https://api.deezer.com/search/album?" + q.Encode()
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("User-Agent", "qBitSlskd/1.0 (github.com/EastArctica/qBitSlskd)")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-
-	res, err := httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-
-	defer res.Body.Close()
-	body, _ := io.ReadAll(res.Body)
-
-	var albumLookup models.AlbumLookupWrapper
-	_ = json.Unmarshal(body, &albumLookup)
-
-	if len(albumLookup.Data) == 0 {
-		return nil, fmt.Errorf("No album found")
-	}
-
-	year_req, err := http.NewRequest("GET", fmt.Sprintf("https://api.deezer.com/album/%d", albumLookup.Data[0].Id), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	year_req.Header.Set("User-Agent", "qBitSlskd/1.0 (github.com/EastArctica/qBitSlskd)")
-	year_req.Header.Set("Accept", "application/json")
-	year_req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-
-	year_res, err := httpClient.Do(year_req)
-	if err != nil {
-		return nil, err
-	}
-
-	defer year_res.Body.Close()
-	year_body, _ := io.ReadAll(year_res.Body)
-
-	var year models.YearLookupResult
-	_ = json.Unmarshal(year_body, &year)
-
-	return &models.Album{
-		Title:  albumLookup.Data[0].Title,
-		Artist: albumLookup.Data[0].Artist.Name,
-		Year:   strings.Split(year.ReleaseDate, "-")[0],
-	}, nil
-}
-
-var parenRe = regexp.MustCompile(`[\[(][^\])]*[\])]`)
-var yearRe = regexp.MustCompile(`\b(19|20)\d{2}\b`)
-var wsRe = regexp.MustCompile(`\s+`)
-
-func clean(s string) string {
-	s = parenRe.ReplaceAllString(s, " ")
-	s = yearRe.ReplaceAllString(s, " ")
-	return strings.TrimSpace(wsRe.ReplaceAllString(s, " "))
 }
 
 func getLidarrCompatibleFileExtension(candidate releaseCandidate) string {

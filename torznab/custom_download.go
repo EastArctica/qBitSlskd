@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/EastArctica/qbitslskd/album_lookup"
 	"github.com/EastArctica/qbitslskd/models"
 	"github.com/jackpal/bencode-go"
 )
@@ -66,7 +67,7 @@ func CustomDownloadHandler(w http.ResponseWriter, req *http.Request, cache *mode
 			// relative to info.name. Every file in a release comes from the
 			// same Soulseek directory (see groupByDirectory) and name is
 			// already that directory, so each file sits directly beneath it.
-			Path: []string{slskdBasename(file.Filename)},
+			Path: []string{album_lookup.SlskdBasename(file.Filename)},
 		})
 	}
 

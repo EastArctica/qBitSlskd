@@ -10,12 +10,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/EastArctica/qbitslskd/album_lookup"
 	"github.com/EastArctica/qbitslskd/config"
 	"github.com/EastArctica/qbitslskd/models"
 	"github.com/google/uuid"
@@ -365,78 +366,90 @@ func groupByDirectory(results []models.SearchResult) []releaseCandidate {
 
 func buildItems(results []models.SearchResult, cache *models.Cache, apiKey string) []models.TorznabChannelItem {
 	candidates := groupByDirectory(results)
-	items := make([]models.TorznabChannelItem, 0, len(candidates))
 	pubDate := time.Now().Format(time.RFC1123Z)
 
+	items := make([]models.TorznabChannelItem, 0, len(candidates))
+	var itemsMutex sync.Mutex
+	var wg sync.WaitGroup
+
 	for _, candidate := range candidates {
-		// Lidarr identifies a release by parsing its title, so a raw Soulseek
-		// directory base_name matches nothing and the release gets discarded.
-		// The required format for Lidarr is `Artist - Album (Year) [Quality]`
-		// Quality is usually the file extension.
-		base_name := slskdBasename(candidate.directory)
-		album, err := lookupAlbum(base_name)
-		if err != nil {
-			continue
-		}
+		wg.Go(func() {
+			// Lidarr identifies a release by parsing its title, so a raw Soulseek
+			// directory base_name matches nothing and the release gets discarded.
+			// The required format for Lidarr is `Artist - Album (Year) [Quality]`
+			// Quality is usually the file extension.
 
-		file_ext := getLidarrCompatibleFileExtension(candidate)
+			album_ptr, score := album_lookup.LookupAlbum(candidate.directory)
+			if album_ptr == nil {
+				return
+			}
 
-		name := fmt.Sprintf("%s - %s (%s) [%s]", album.Artist, album.Title, album.Year, file_ext)
+			// Insert trust me bro
+			album := *album_ptr
 
-		// The hash is the release's identity for the rest of the pipeline: it is
-		// the guid, the search cache key, the id in the download URL, and later
-		// the torrent hash reported back by /api/v2/torrents/info. They all have
-		// to agree or the grab cannot be matched to a Soulseek user and path.
-		hash := releaseHash(candidate.username, candidate.directory)
+			file_ext := getLidarrCompatibleFileExtension(candidate)
 
-		cache.Mutex.Lock()
-		cache.Search[hash] = models.SearchCacheEntry{
-			SearchedAt: time.Now(),
-			Files:      candidate.files,
-			Username:   candidate.username,
-			Name:       name,
-		}
-		cache.Mutex.Unlock()
+			name := fmt.Sprintf("%s - %s (%s) [%s]", album.Artist, album.Title, album.Year, file_ext)
 
-		downloadURL := fmt.Sprintf("%s/api?t=custom_download&id=%s&apikey=%s",
-			config.QBITSLSKD_ROOT, hash, url.QueryEscape(apiKey))
+			// The hash is the release's identity for the rest of the pipeline: it is
+			// the guid, the search cache key, the id in the download URL, and later
+			// the torrent hash reported back by /api/v2/torrents/info. They all have
+			// to agree or the grab cannot be matched to a Soulseek user and path.
+			hash := releaseHash(candidate.username, candidate.directory)
 
-		// Nothing here really seeds, but a release reporting zero seeders is
-		// treated as unavailable and dropped, so every release gets at least one.
-		// Peers with a free upload slot get two so they sort above queued ones.
-		seeders := 0
-		if candidate.freeSlot {
-			seeders = 100
-		}
+			cache.Mutex.Lock()
+			cache.Search[hash] = models.SearchCacheEntry{
+				SearchedAt: time.Now(),
+				Files:      candidate.files,
+				Username:   candidate.username,
+				Name:       name,
+			}
+			cache.Mutex.Unlock()
 
-		size := strconv.FormatInt(candidate.totalSize, 10)
+			downloadURL := fmt.Sprintf("%s/api?t=custom_download&id=%s&apikey=%s",
+				config.QBITSLSKD_ROOT, hash, url.QueryEscape(apiKey))
 
-		items = append(items, models.TorznabChannelItem{
-			Title:       name,
-			Guid:        models.TorznabGuid{Text: hash, IsPermaLink: "false"},
-			Link:        downloadURL,
-			PubDate:     pubDate,
-			Category:    CATEGORY_AUDIO,
-			Description: name,
-			Enclosure: models.TorznabChannelItemEnclosure{
-				URL:    downloadURL,
-				Length: size,
-				Type:   "application/x-bittorrent",
-			},
-			Attr: []models.TorznabChannelItemAttr{
-				{Name: "category", Value: CATEGORY_AUDIO},
-				{Name: "size", Value: size},
-				{Name: "files", Value: strconv.Itoa(len(candidate.files))},
-				{Name: "seeders", Value: strconv.Itoa(seeders)},
-				{Name: "peers", Value: strconv.Itoa(candidate.queueLength + seeders)},
-				// A Soulseek transfer can never seed, so stop Lidarr holding
-				// completed items against ratio goals that will never be met.
-				{Name: "downloadvolumefactor", Value: "0"},
-				{Name: "uploadvolumefactor", Value: "0"},
-				{Name: "minimumseedtime", Value: "1"},
-			},
+			// Nothing here really seeds, but a release reporting zero seeders is
+			// treated as unavailable and dropped, so every release gets at least one.
+			// Peers with a free upload slot get two so they sort above queued ones.
+			seeders := score
+			if !candidate.freeSlot {
+				seeders = 0
+			}
+
+			size := strconv.FormatInt(candidate.totalSize, 10)
+
+			itemsMutex.Lock()
+			items = append(items, models.TorznabChannelItem{
+				Title:       name,
+				Guid:        models.TorznabGuid{Text: hash, IsPermaLink: "false"},
+				Link:        downloadURL,
+				PubDate:     pubDate,
+				Category:    CATEGORY_AUDIO,
+				Description: name,
+				Enclosure: models.TorznabChannelItemEnclosure{
+					URL:    downloadURL,
+					Length: size,
+					Type:   "application/x-bittorrent",
+				},
+				Attr: []models.TorznabChannelItemAttr{
+					{Name: "category", Value: CATEGORY_AUDIO},
+					{Name: "size", Value: size},
+					{Name: "files", Value: strconv.Itoa(len(candidate.files))},
+					{Name: "seeders", Value: strconv.Itoa(seeders)},
+					{Name: "peers", Value: strconv.Itoa(candidate.queueLength + seeders)},
+					// A Soulseek transfer can never seed, so stop Lidarr holding
+					// completed items against ratio goals that will never be met.
+					{Name: "downloadvolumefactor", Value: "0"},
+					{Name: "uploadvolumefactor", Value: "0"},
+					{Name: "minimumseedtime", Value: "1"},
+				},
+			})
+			itemsMutex.Unlock()
 		})
 	}
+
+	wg.Wait()
 
 	return items
 }
@@ -457,88 +470,6 @@ func slskdDirectory(filename string) string {
 	}
 
 	return filename[:index]
-}
-
-func slskdBasename(path string) string {
-	split_path := strings.Split(path, "\\")
-
-	if len(split_path) <= 2 {
-		return strings.Join(split_path, " ")
-	}
-
-	last_two := split_path[len(split_path)-2:]
-
-	return strings.Join(last_two, " ")
-}
-
-func lookupAlbum(name string) (*models.Album, error) {
-	var httpClient = &http.Client{Timeout: 60 * time.Second}
-
-	q := url.Values{}
-	q.Set("q", clean(name))
-	q.Set("limit", "1")
-
-	url := "https://api.deezer.com/search/album?" + q.Encode()
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("User-Agent", "qBitSlskd/1.0 (github.com/EastArctica/qBitSlskd)")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-
-	res, err := httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-
-	defer res.Body.Close()
-	body, _ := io.ReadAll(res.Body)
-
-	var albumLookup models.AlbumLookupWrapper
-	_ = json.Unmarshal(body, &albumLookup)
-
-	if len(albumLookup.Data) == 0 {
-		return nil, fmt.Errorf("No album found")
-	}
-
-	year_req, err := http.NewRequest("GET", fmt.Sprintf("https://api.deezer.com/album/%d", albumLookup.Data[0].Id), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	year_req.Header.Set("User-Agent", "qBitSlskd/1.0 (github.com/EastArctica/qBitSlskd)")
-	year_req.Header.Set("Accept", "application/json")
-	year_req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-
-	year_res, err := httpClient.Do(year_req)
-	if err != nil {
-		return nil, err
-	}
-
-	defer year_res.Body.Close()
-	year_body, _ := io.ReadAll(year_res.Body)
-
-	var year models.YearLookupResult
-	_ = json.Unmarshal(year_body, &year)
-
-	return &models.Album{
-		Title:  albumLookup.Data[0].Title,
-		Artist: albumLookup.Data[0].Artist.Name,
-		Year:   strings.Split(year.ReleaseDate, "-")[0],
-	}, nil
-}
-
-var parenRe = regexp.MustCompile(`[\[(][^\])]*[\])]`)
-var yearRe = regexp.MustCompile(`\b(19|20)\d{2}\b`)
-var wsRe = regexp.MustCompile(`\s+`)
-
-func clean(s string) string {
-	s = parenRe.ReplaceAllString(s, " ")
-	s = yearRe.ReplaceAllString(s, " ")
-	return strings.TrimSpace(wsRe.ReplaceAllString(s, " "))
 }
 
 func getLidarrCompatibleFileExtension(candidate releaseCandidate) string {

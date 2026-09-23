@@ -379,7 +379,7 @@ func buildItems(results []models.SearchResult, cache *models.Cache, apiKey strin
 			// The required format for Lidarr is `Artist - Album (Year) [Quality]`
 			// Quality is usually the file extension.
 
-			album_ptr := album_lookup.LookupAlbum(candidate.directory)
+			album_ptr, score := album_lookup.LookupAlbum(candidate.directory)
 			if album_ptr == nil {
 				return
 			}
@@ -412,9 +412,9 @@ func buildItems(results []models.SearchResult, cache *models.Cache, apiKey strin
 			// Nothing here really seeds, but a release reporting zero seeders is
 			// treated as unavailable and dropped, so every release gets at least one.
 			// Peers with a free upload slot get two so they sort above queued ones.
-			seeders := 0
-			if candidate.freeSlot {
-				seeders = 100
+			seeders := score
+			if !candidate.freeSlot {
+				seeders = 0
 			}
 
 			size := strconv.FormatInt(candidate.totalSize, 10)

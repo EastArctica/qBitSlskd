@@ -25,7 +25,7 @@ type albumVote struct {
 
 // Thank god for the garbage collector
 // This takes in the directory slskd provides (ie @@pmzzx\Music\Electronic\VA-For_DJs_Only_Extended_Club_Mixes)
-func LookupAlbum(directory string) *models.Album {
+func LookupAlbum(directory string) (*models.Album, int) {
 	var album_votes map[models.Album]*albumVote = make(map[models.Album]*albumVote)
 
 	for _, lookup := range lookup_functions {
@@ -62,10 +62,10 @@ func LookupAlbum(directory string) *models.Album {
 	}
 
 	if best_match == nil {
-		return nil
+		return nil, 0
 	}
 
-	return &best_match.album
+	return &best_match.album, best_match.score
 }
 
 var parenRe = regexp.MustCompile(`[\[(][^\])]*[\])]`)

@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/EastArctica/qbitslskd/album_lookup"
@@ -365,81 +366,90 @@ func groupByDirectory(results []models.SearchResult) []releaseCandidate {
 
 func buildItems(results []models.SearchResult, cache *models.Cache, apiKey string) []models.TorznabChannelItem {
 	candidates := groupByDirectory(results)
-	items := make([]models.TorznabChannelItem, 0, len(candidates))
 	pubDate := time.Now().Format(time.RFC1123Z)
 
+	items := make([]models.TorznabChannelItem, 0, len(candidates))
+	var itemsMutex sync.Mutex
+	var wg sync.WaitGroup
+
 	for _, candidate := range candidates {
-		// Lidarr identifies a release by parsing its title, so a raw Soulseek
-		// directory base_name matches nothing and the release gets discarded.
-		// The required format for Lidarr is `Artist - Album (Year) [Quality]`
-		// Quality is usually the file extension.
+		wg.Go(func() {
+			// Lidarr identifies a release by parsing its title, so a raw Soulseek
+			// directory base_name matches nothing and the release gets discarded.
+			// The required format for Lidarr is `Artist - Album (Year) [Quality]`
+			// Quality is usually the file extension.
 
-		album_ptr := album_lookup.LookupAlbum(candidate.directory)
-		if album_ptr == nil {
-			continue
-		}
+			album_ptr := album_lookup.LookupAlbum(candidate.directory)
+			if album_ptr == nil {
+				return
+			}
 
-		// Insert trust me bro
-		album := *album_ptr
+			// Insert trust me bro
+			album := *album_ptr
 
-		file_ext := getLidarrCompatibleFileExtension(candidate)
+			file_ext := getLidarrCompatibleFileExtension(candidate)
 
-		name := fmt.Sprintf("%s - %s (%s) [%s]", album.Artist, album.Title, album.Year, file_ext)
+			name := fmt.Sprintf("%s - %s (%s) [%s]", album.Artist, album.Title, album.Year, file_ext)
 
-		// The hash is the release's identity for the rest of the pipeline: it is
-		// the guid, the search cache key, the id in the download URL, and later
-		// the torrent hash reported back by /api/v2/torrents/info. They all have
-		// to agree or the grab cannot be matched to a Soulseek user and path.
-		hash := releaseHash(candidate.username, candidate.directory)
+			// The hash is the release's identity for the rest of the pipeline: it is
+			// the guid, the search cache key, the id in the download URL, and later
+			// the torrent hash reported back by /api/v2/torrents/info. They all have
+			// to agree or the grab cannot be matched to a Soulseek user and path.
+			hash := releaseHash(candidate.username, candidate.directory)
 
-		cache.Mutex.Lock()
-		cache.Search[hash] = models.SearchCacheEntry{
-			SearchedAt: time.Now(),
-			Files:      candidate.files,
-			Username:   candidate.username,
-			Name:       name,
-		}
-		cache.Mutex.Unlock()
+			cache.Mutex.Lock()
+			cache.Search[hash] = models.SearchCacheEntry{
+				SearchedAt: time.Now(),
+				Files:      candidate.files,
+				Username:   candidate.username,
+				Name:       name,
+			}
+			cache.Mutex.Unlock()
 
-		downloadURL := fmt.Sprintf("%s/api?t=custom_download&id=%s&apikey=%s",
-			config.QBITSLSKD_ROOT, hash, url.QueryEscape(apiKey))
+			downloadURL := fmt.Sprintf("%s/api?t=custom_download&id=%s&apikey=%s",
+				config.QBITSLSKD_ROOT, hash, url.QueryEscape(apiKey))
 
-		// Nothing here really seeds, but a release reporting zero seeders is
-		// treated as unavailable and dropped, so every release gets at least one.
-		// Peers with a free upload slot get two so they sort above queued ones.
-		seeders := 0
-		if candidate.freeSlot {
-			seeders = 100
-		}
+			// Nothing here really seeds, but a release reporting zero seeders is
+			// treated as unavailable and dropped, so every release gets at least one.
+			// Peers with a free upload slot get two so they sort above queued ones.
+			seeders := 0
+			if candidate.freeSlot {
+				seeders = 100
+			}
 
-		size := strconv.FormatInt(candidate.totalSize, 10)
+			size := strconv.FormatInt(candidate.totalSize, 10)
 
-		items = append(items, models.TorznabChannelItem{
-			Title:       name,
-			Guid:        models.TorznabGuid{Text: hash, IsPermaLink: "false"},
-			Link:        downloadURL,
-			PubDate:     pubDate,
-			Category:    CATEGORY_AUDIO,
-			Description: name,
-			Enclosure: models.TorznabChannelItemEnclosure{
-				URL:    downloadURL,
-				Length: size,
-				Type:   "application/x-bittorrent",
-			},
-			Attr: []models.TorznabChannelItemAttr{
-				{Name: "category", Value: CATEGORY_AUDIO},
-				{Name: "size", Value: size},
-				{Name: "files", Value: strconv.Itoa(len(candidate.files))},
-				{Name: "seeders", Value: strconv.Itoa(seeders)},
-				{Name: "peers", Value: strconv.Itoa(candidate.queueLength + seeders)},
-				// A Soulseek transfer can never seed, so stop Lidarr holding
-				// completed items against ratio goals that will never be met.
-				{Name: "downloadvolumefactor", Value: "0"},
-				{Name: "uploadvolumefactor", Value: "0"},
-				{Name: "minimumseedtime", Value: "1"},
-			},
+			itemsMutex.Lock()
+			items = append(items, models.TorznabChannelItem{
+				Title:       name,
+				Guid:        models.TorznabGuid{Text: hash, IsPermaLink: "false"},
+				Link:        downloadURL,
+				PubDate:     pubDate,
+				Category:    CATEGORY_AUDIO,
+				Description: name,
+				Enclosure: models.TorznabChannelItemEnclosure{
+					URL:    downloadURL,
+					Length: size,
+					Type:   "application/x-bittorrent",
+				},
+				Attr: []models.TorznabChannelItemAttr{
+					{Name: "category", Value: CATEGORY_AUDIO},
+					{Name: "size", Value: size},
+					{Name: "files", Value: strconv.Itoa(len(candidate.files))},
+					{Name: "seeders", Value: strconv.Itoa(seeders)},
+					{Name: "peers", Value: strconv.Itoa(candidate.queueLength + seeders)},
+					// A Soulseek transfer can never seed, so stop Lidarr holding
+					// completed items against ratio goals that will never be met.
+					{Name: "downloadvolumefactor", Value: "0"},
+					{Name: "uploadvolumefactor", Value: "0"},
+					{Name: "minimumseedtime", Value: "1"},
+				},
+			})
+			itemsMutex.Unlock()
 		})
 	}
+
+	wg.Wait()
 
 	return items
 }
